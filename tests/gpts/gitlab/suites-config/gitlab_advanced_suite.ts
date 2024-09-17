@@ -25,7 +25,7 @@ import { cleanAfterTestGitLab } from "../../../../src/utils/test.utils";
     * 14. Merge the Pull Request to main.
     * 15. Wait for the new image to be deployed to the production environment.
  */
-export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: string) => {
+export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: string, gitLabOrganization: string) => {
     describe(`Advanced Red Hat Trusted Application Pipeline ${softwareTemplateName} tests GitLab provider with public/private image registry`, () => {
         let backstageClient: DeveloperHubClient;
         let developerHubTask: TaskIdReponse;
@@ -49,7 +49,6 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         const stageNamespace = `${componentRootNamespace}-${stagingEnvironmentName}`;
         const prodNamespace = `${componentRootNamespace}-${productionEnvironmentName}`;
 
-        const gitLabOrganization = process.env.GITLAB_ORGANIZATION || '';
         const repositoryName = `${generateRandomChars(9)}-${softwareTemplateName}`;
 
         const quayImageOrg = process.env.QUAY_IMAGE_ORG || '';
@@ -68,7 +67,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             }
 
             if (gitLabOrganization === '') {
-                throw new Error("The 'GITLAB_ORGANIZATION' environment variable is not set. Please ensure that the environment variable is defined properly or you have cluster connection.");
+                throw new Error("The 'GITLAB_ORGANIZATION_PUBLIC'/'GITLAB_ORGANIZATION_PRIVATE' environment variable is not set. Please ensure that the environment variable is defined properly or you have cluster connection.");
             }
 
             if (quayImageOrg === '') {

@@ -16,7 +16,7 @@ import { cleanAfterTestGitLab } from "../../../../src/utils/test.utils";
  * 
  * @param softwareTemplateName The name of the software template.
  */
-export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
+export const gitLabProviderBasicTests = (softwareTemplateName: string, gitLabOrganization: string) => {
     describe(`Red Hat Trusted Application Pipeline ${softwareTemplateName} GPT tests GitLab provider with public/private image registry`, () => {
         jest.retryTimes(2);
 
@@ -31,8 +31,7 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
         const componentRootNamespace = process.env.APPLICATION_ROOT_NAMESPACE || '';
         const RHTAPRootNamespace = process.env.RHTAP_ROOT_NAMESPACE || 'rhtap';
         const developmentNamespace = `${componentRootNamespace}-development`;
-    
-        const gitLabOrganization = process.env.GITLAB_ORGANIZATION || '';
+
         const repositoryName = `${generateRandomChars(9)}-${softwareTemplateName}`;
     
         const quayImageName = "rhtap-qe";
@@ -52,9 +51,9 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
             }
     
             if (gitLabOrganization === '') {
-                throw new Error("The 'GITLAB_ORGANIZATION' environment variable is not set. Please ensure that the environment variable is defined properly or you have cluster connection.");
+                throw new Error("The 'GITLAB_ORGANIZATION_PUBLIC'/'GITLAB_ORGANIZATION_PRIVATE' environment variable is not set. Please ensure that the environment variable is defined properly or you have cluster connection.");
             }
-    
+
             if (quayImageOrg === '') {
                 throw new Error("The 'QUAY_IMAGE_ORG' environment variable is not set. Please ensure that the environment variable is defined properly or you have cluster connection.");
             }
