@@ -1,0 +1,2 @@
+export const onPullPipelinerunTaskNames = ["init", "clone-repository", "build-container", "acs-image-check", "acs-image-scan", "show-sbom", "show-summary"]
+export const onPushPipelinerunTaskNames = [...onPullPipelinerunTaskNames, "acs-deploy-check", "update-deployment"]

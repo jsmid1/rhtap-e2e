@@ -3,7 +3,7 @@ import { PipelineRunKind, TaskRunKind } from '@janus-idp/shared-react';
 import * as path from "node:path";
 import { Utils } from "../git-providers/utils";
 import { ApplicationSpec } from "./types/argo.cr.application";
-import { PipelineRunList, TaskRunList } from "./types/pac.cr.pipelinerun";
+import { PipelineRunList, TaskRunList } from './types/pac.cr.pipelinerun';
 import { OpenshiftRoute } from "./types/oc.routes.cr";
 
 /**
@@ -324,6 +324,38 @@ export class Kubernetes extends Utils {
             return "";
         }
     }
+    /**
+     * Checks pipelineRun status and correct taskRun executions
+     * @param pipelineRun 
+     * @param pipelineRunTasks 
+     * @returns 
+     */
+    public async checkPipelineRun(pipelineRun: PipelineRunKind, pipelineRunTasks: string[]) {
+        if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
+            const taskRuns = await this.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
+
+            console.log(pipelineRun)
+            for (const taskRun of taskRuns) {
+                console.log(taskRun.metadata?.labels?.["tekton.dev/pipelineTask"])
+
+                if (!(taskRun.status && taskRun.status.podName)) {
+                    throw new Error("TaskRun failed")
+                }
+
+                var taskRunName = taskRun.metadata?.labels?.["tekton.dev/pipelineTask"]
+                if (typeof taskRunName === 'undefined' || !pipelineRunTasks.includes(taskRunName)) {
+                    console.log(taskRunName)
+                    console.log(pipelineRunTasks)
+                    console.log(`Unexpected taskRun: ${taskRunName}`)
+                    throw new Error(`Unexpected taskRun: ${taskRunName}`)
+                }
+            }
+
+            if (taskRuns.length !== pipelineRunTasks.length) {
+                throw new Error(`Unexpected number of taskRuns: got ${taskRuns.length}, expected ${pipelineRunTasks.length}`)
+            }
+        }
+    }
 
     /**
     * Gets route for developer hub.
@@ -338,9 +370,9 @@ export class Kubernetes extends Utils {
             // Get the route object from the OpenShift cluster
             const route = await k8sCustomApi.getNamespacedCustomObject(
                 'route.openshift.io',
-                'v1',                
-                namespace,            
-                'routes',             
+                'v1',
+                namespace,
+                'routes',
                 'backstage-developer-hub'
             );
 
@@ -357,6 +389,23 @@ export class Kubernetes extends Utils {
         } catch (err) {
             console.error(`Error fetching route backstage-developer-hub: ${err}`);
             return "";
+        }
+    }
+
+    /**
+     * 
+     * @param pipelineRun 
+     * @param developmentNamespace 
+     */
+    public async logPipelineRun(pipelineRun: PipelineRunKind, developmentNamespace: string) {
+        if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
+            const taskRuns = await this.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
+
+            for (const taskRun of taskRuns) {
+                if (taskRun.status && taskRun.status.podName) {
+                    await this.readNamespacedPodLog(taskRun.status.podName, developmentNamespace)
+                }
+            }
         }
     }
 }

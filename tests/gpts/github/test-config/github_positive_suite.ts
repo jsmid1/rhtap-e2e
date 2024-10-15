@@ -6,6 +6,7 @@ import { GitHubProvider } from "../../../../src/apis/git-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { ScaffolderScaffoldOptions } from '@backstage/plugin-scaffolder-react';
 import { cleanAfterTestGitHub, getDeveloperHubClient, getGitHubClient, getRHTAPRootNamespace } from "../../../../src/utils/test.utils";
+import { onPushPipelinerunTaskNames } from '../../consts';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -41,7 +42,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
          * This namespace should have gitops label: 'argocd.argoproj.io/managed-by': 'openshift-gitops' to allow ArgoCD to create
          * resources
         */
-        beforeAll(async()=> {
+        beforeAll(async () => {
             RHTAPRootNamespace = await getRHTAPRootNamespace();
             kubeClient = new Kubernetes();
             gitHubClient = await getGitHubClient(kubeClient);
@@ -70,9 +71,9 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Creates a request to Developer Hub and check if the gpt really exists in the catalog
          */
-        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async ()=> {
+        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async () => {
             const goldenPathTemplates = await backstageClient.getGoldenPathTemplates();
-            
+
             expect(goldenPathTemplates.some(gpt => gpt.metadata.name === gptTemplate)).toBe(true)
         })
 
@@ -104,10 +105,25 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
                     namespace: componentRootNamespace,
                     owner: "user:guest",
                     repoName: repositoryName,
-                    repoOwner: githubOrganization, 
+                    repoOwner: githubOrganization,
                     ciType: "tekton"
                 }
             };
+
+            console.log({
+                branch: 'main',
+                githubServer: 'github.com',
+                hostType: 'GitHub',
+                imageName: quayImageName,
+                imageOrg: quayImageOrg,
+                imageRegistry: imageRegistry,
+                name: repositoryName,
+                namespace: componentRootNamespace,
+                owner: "user:guest",
+                repoName: repositoryName,
+                repoOwner: githubOrganization,
+                ciType: "tekton"
+            })
 
             // Creating a task in Developer Hub to scaffold the component
             developerHubTask = await backstageClient.createDeveloperHubTask(taskCreatorOptions);
@@ -127,7 +143,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
                     await backstageClient.writeLogsToArtifactDir('backstage-tasks-logs', `github-${repositoryName}.log`, logs);
 
                     throw new Error("failed to create backstage tasks. Please check Developer Hub tasks logs...");
-                    
+
                 } catch (error) {
                     throw new Error(`failed to write files to console: ${error}`);
                 }
@@ -171,7 +187,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
          */
-        it(`Creates empty commit to trigger a pipeline run`, async ()=> {
+        it(`Creates empty commit to trigger a pipeline run`, async () => {
             const commit = await gitHubClient.createEmptyCommit(githubOrganization, repositoryName)
             expect(commit).not.toBe(undefined)
 
@@ -180,7 +196,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
-        it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async ()=> {
+        it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async () => {
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'push')
 
             if (pipelineRun === undefined) {
@@ -189,13 +205,11 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+                await kubeClient.checkPipelineRun(pipelineRun, onPushPipelinerunTaskNames)
+
+                await kubeClient.logPipelineRun(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
