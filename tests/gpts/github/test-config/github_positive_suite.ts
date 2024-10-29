@@ -5,7 +5,7 @@ import { generateRandomChars } from '../../../../src/utils/generator';
 import { GitHubProvider } from "../../../../src/apis/git-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { checkEnvVariablesGitHub, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, getRHTAPRootNamespace } from "../../../../src/utils/test.utils";
-
+import { onPushPprTasks } from '../../consts';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -41,7 +41,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
          * This namespace should have gitops label: 'argocd.argoproj.io/managed-by': 'openshift-gitops' to allow ArgoCD to create
          * resources
         */
-        beforeAll(async()=> {
+        beforeAll(async () => {
             RHTAPRootNamespace = await getRHTAPRootNamespace();
             kubeClient = new Kubernetes();
             gitHubClient = await getGitHubClient(kubeClient);
@@ -54,9 +54,9 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Creates a request to Developer Hub and check if the gpt really exists in the catalog
          */
-        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async ()=> {
+        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async () => {
             const goldenPathTemplates = await backstageClient.getGoldenPathTemplates();
-            
+
             expect(goldenPathTemplates.some(gpt => gpt.metadata.name === gptTemplate)).toBe(true)
         })
 
@@ -95,7 +95,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
                     await backstageClient.writeLogsToArtifactDir('backstage-tasks-logs', `github-${repositoryName}.log`, logs);
 
                     throw new Error("failed to create backstage tasks. Please check Developer Hub tasks logs...");
-                    
+
                 } catch (error) {
                     throw new Error(`failed to write files to console: ${error}`);
                 }
@@ -139,7 +139,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
          */
-        it(`Creates empty commit to trigger a pipeline run`, async ()=> {
+        it(`Creates empty commit to trigger a pipeline run`, async () => {
             const commit = await gitHubClient.createEmptyCommit(githubOrganization, repositoryName)
             expect(commit).not.toBe(undefined)
 
@@ -148,7 +148,7 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         /**
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
-        it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async ()=> {
+        it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async () => {
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'push')
 
             if (pipelineRun === undefined) {
@@ -157,35 +157,31 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPushPprTasks)
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
-  
-         /**
-         * Check if the pipelinerun yaml has the rh-syft image path mentioned
-         */
-         it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async ()=> {
+
+        /**
+        * Check if the pipelinerun yaml has the rh-syft image path mentioned
+        */
+        it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async () => {
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'push')
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
-                const doc = await kubeClient.pipelinerunfromName(pipelineRun.metadata.name,developmentNamespace)
+                const doc = await kubeClient.pipelinerunfromName(pipelineRun.metadata.name, developmentNamespace)
                 const index = doc.spec.pipelineSpec.tasks.findIndex(item => item.name === "build-container")
                 console.log(index)
                 const regex = new RegExp("registry.redhat.io/rh-syft-tech-preview/syft-rhel9", 'i');
-                const image_index= (doc.spec.pipelineSpec.tasks[index].taskSpec.steps.findIndex(item => regex.test(item.image)))
-                if (image_index)
-                {
-                    console.log("The image path found is " + doc.spec.pipelineSpec.tasks[index].taskSpec.steps[image_index].image )
+                const image_index = (doc.spec.pipelineSpec.tasks[index].taskSpec.steps.findIndex(item => regex.test(item.image)))
+                if (image_index) {
+                    console.log("The image path found is " + doc.spec.pipelineSpec.tasks[index].taskSpec.steps[image_index].image)
                 }
-            expect(image_index).not.toBe(undefined)
-            } 
-        }, 900000)        
+                expect(image_index).not.toBe(undefined)
+            }
+        }, 900000)
 
         /**
         * Deletes created applications

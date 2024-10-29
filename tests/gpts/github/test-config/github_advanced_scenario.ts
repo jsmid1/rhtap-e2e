@@ -6,6 +6,7 @@ import { syncArgoApplication } from '../../../../src/utils/argocd';
 import { GitHubProvider } from "../../../../src/apis/git-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { checkEnvVariablesGitHub, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, getRHTAPRootNamespace } from "../../../../src/utils/test.utils";
+import { onPullGitopsPprTasks, onPullPprTasks, onPushPprTasks } from '../../consts';
 
 /**
  * Advanced end-to-end test scenario for Red Hat Trusted Application Pipelines:
@@ -60,7 +61,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
          * This namespace should have gitops label: 'argocd.argoproj.io/managed-by': 'openshift-gitops' to allow ArgoCD to create
          * resources
         */
-        beforeAll(async()=> {
+        beforeAll(async () => {
             RHTAPRootNamespace = await getRHTAPRootNamespace();
             kubeClient = new Kubernetes();
             gitHubClient = await getGitHubClient(kubeClient);
@@ -72,7 +73,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Creates a request to Developer Hub and check if the gpt really exists in the catalog
          */
-        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async ()=> {
+        it(`verifies if ${gptTemplate} gpt exists in the catalog`, async () => {
             const goldenPathTemplates = await backstageClient.getGoldenPathTemplates();
 
             expect(goldenPathTemplates.some(gpt => gpt.metadata.name === gptTemplate)).toBe(true)
@@ -81,7 +82,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Creates a task in Developer Hub to generate a new component using specified git and kube options.
          */
-        it(`creates ${gptTemplate} component`, async () => {            
+        it(`creates ${gptTemplate} component`, async () => {
             const taskCreatorOptions = await createTaskCreatorOptionsGitHub(gptTemplate, quayImageName, quayImageOrg, imageRegistry, githubOrganization, repositoryName, componentRootNamespace, "tekton");
 
             // Creating a task in Developer Hub to scaffold the component
@@ -143,7 +144,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         it(`wait ${gptTemplate} argocd to be synced in the cluster`, async () => {
             // Wait for the ArgoCD application to be synchronized in the cluster
             const argoCDAppISSynced = await kubeClient.waitForArgoCDApplicationToBeHealthy(`${repositoryName}-development`, 500000);
-            
+
             // Expect the ArgoCD application to be synced
             expect(argoCDAppISSynced).toBe(true);
         }, 600000);
@@ -168,7 +169,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
-        it(`Wait component ${gptTemplate} pull request pipelinerun to be triggered and finished`, async ()=> {
+        it(`Wait component ${gptTemplate} pull request pipelinerun to be triggered and finished`, async () => {
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'pull_request')
 
             if (pipelineRun === undefined) {
@@ -177,13 +178,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullPprTasks)
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
@@ -191,29 +189,26 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
          */
-        it(`Merge pull_request to trigger a push pipelinerun`, async ()=> {
+        it(`Merge pull_request to trigger a push pipelinerun`, async () => {
             await gitHubClient.mergePullRequest(githubOrganization, repositoryName, pullRequestNumber)
         }, 120000)
 
         /**
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
-        it(`Wait component ${gptTemplate} push pipelinerun to be triggered and finished`, async ()=> {
+        it(`Wait component ${gptTemplate} push pipelinerun to be triggered and finished`, async () => {
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'push')
-        
+
             if (pipelineRun === undefined) {
                 throw new Error("Error to read pipelinerun from the cluster. Seems like pipelinerun was never created; verrfy PAC controller logs.");
             }
-        
+
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
-        
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+
+                await kubeClient.checkTaskRuns(pipelineRun, onPushPprTasks)
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
@@ -221,7 +216,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Obtain the openshift Route for the component and verify that the previous builded image was synced in the cluster
          */
-        it('container component is successfully synced by gitops in development environment', async ()=> {
+        it('container component is successfully synced by gitops in development environment', async () => {
             console.log("syncing argocd application in development environment")
             await syncArgoApplication(RHTAPRootNamespace, `${repositoryName}-${developmentEnvironmentName}`)
 
@@ -238,7 +233,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Trigger a promotion Pull Request in Gitops repository to promote development image to stage environment
          */
-        it('trigger pull request promotion to promote from development to stage environment', async ()=> {
+        it('trigger pull request promotion to promote from development to stage environment', async () => {
             const getImage = await gitHubClient.extractImageFromContent(githubOrganization, `${repositoryName}-gitops`, repositoryName, developmentEnvironmentName)
 
             if (getImage !== undefined) {
@@ -267,13 +262,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullGitopsPprTasks)
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
@@ -281,14 +273,14 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * Merge the gitops Pull Request with the new image value. Expect that argocd will sync the new image in stage 
          */
-        it(`merge gitops pull request to sync new image in stage environment`, async ()=> {
+        it(`merge gitops pull request to sync new image in stage environment`, async () => {
             await gitHubClient.mergePullRequest(githubOrganization, `${repositoryName}-gitops`, gitopsPromotionPRNumber)
         }, 120000)
 
         /*
         * Verifies if the new image is deployed with an expected endpoint in stage environment
         */
-        it('container component is successfully synced by gitops in stage environment', async ()=> {
+        it('container component is successfully synced by gitops in stage environment', async () => {
             console.log("syncing argocd application in stage environment")
             await syncArgoApplication(RHTAPRootNamespace, `${repositoryName}-${stagingEnvironmentName}`)
 
@@ -305,7 +297,7 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
         * Trigger a promotion Pull Request in Gitops repository to promote stage image to prod environment
         */
-        it('trigger pull request promotion to promote from stage to prod environment', async ()=> {
+        it('trigger pull request promotion to promote from stage to prod environment', async () => {
             const getImage = await gitHubClient.extractImageFromContent(githubOrganization, `${repositoryName}-gitops`, repositoryName, stagingEnvironmentName)
 
             if (getImage !== undefined) {
@@ -334,13 +326,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000)
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace)
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullGitopsPprTasks)
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace)
+
                 expect(finished).toBe(true)
             }
         }, 900000)
@@ -348,14 +337,14 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
         /**
          * If pipelinerun succeeds merge the PR to allow image to sync in prod environment
          */
-        it(`merge gitops pull request to sync new image in prod environment`, async ()=> {
+        it(`merge gitops pull request to sync new image in prod environment`, async () => {
             await gitHubClient.mergePullRequest(githubOrganization, `${repositoryName}-gitops`, gitopsPromotionPRNumber)
         }, 120000)
 
         /**
          * Obtain the openshift Route for the component and verify that the previous builded image was synced in the cluster
          */
-        it('container component is successfully synced by gitops in prod environment', async ()=> {
+        it('container component is successfully synced by gitops in prod environment', async () => {
             console.log("syncing argocd application in prod environment")
             await syncArgoApplication('rhtap', `${repositoryName}-${productionEnvironmentName}`)
 

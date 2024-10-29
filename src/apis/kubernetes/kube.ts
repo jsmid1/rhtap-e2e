@@ -62,7 +62,7 @@ export class Kubernetes extends Utils {
             const { body: taskRunList } = await customObjectsApi.listClusterCustomObject('tekton.dev', 'v1', 'taskruns');
             const taskRunInterface = taskRunList as TaskRunList;
             return taskRunInterface.items.filter(taskRun =>
-                taskRun.metadata && taskRun.metadata.name && taskRun.metadata.name.startsWith(pipelineRunName));
+                taskRun.metadata && taskRun.metadata.name && taskRun.metadata?.ownerReferences?.[0].name == pipelineRunName);
 
         } catch (error) {
             console.error(error)
@@ -227,7 +227,7 @@ export class Kubernetes extends Utils {
      * @param {string} name - The name of the pipelinerun
      * @throws This function does not throw directly, but may throw errors during API calls or retries.
      */
-    public async pipelinerunfromName(name: string,namespace: string) {
+    public async pipelinerunfromName(name: string, namespace: string) {
         try {
             const k8sCoreApi = this.kubeConfig.makeApiClient(CustomObjectsApi);
             const plr = await k8sCoreApi.getNamespacedCustomObject(
@@ -362,9 +362,9 @@ export class Kubernetes extends Utils {
             // Get the route object from the OpenShift cluster
             const route = await k8sCustomApi.getNamespacedCustomObject(
                 'route.openshift.io',
-                'v1',                
-                namespace,            
-                'routes',             
+                'v1',
+                namespace,
+                'routes',
                 'backstage-developer-hub'
             );
 
@@ -381,6 +381,51 @@ export class Kubernetes extends Utils {
         } catch (err) {
             console.error(`Error fetching route backstage-developer-hub: ${err}`);
             return "";
+        }
+    }
+
+    /**
+     * Checks pipelineRun status and that the correct tasks were executed
+     * @param pipelineRun  - The pipelineRun to check.
+     * @param pipelineRunTasks - The list of tasks that are expected to be executed.
+     * @returns 
+     */
+    public async checkTaskRuns(pipelineRun: PipelineRunKind, pipelineRunTasks: string[]) {
+        if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
+            const taskRuns = await this.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
+
+            console.log(pipelineRun)
+            for (const taskRun of taskRuns) {
+                if (!(taskRun.status && taskRun.status.podName)) {
+                    throw new Error("TaskRun failed")
+                }
+
+                var taskRunName = taskRun.metadata?.labels?.["tekton.dev/pipelineTask"]
+                if (typeof taskRunName === 'undefined' || !pipelineRunTasks.includes(taskRunName)) {
+                    throw new Error(`Unexpected taskRun: ${taskRunName}`)
+                }
+            }
+
+            if (taskRuns.length !== pipelineRunTasks.length) {
+                throw new Error(`Unexpected number of taskRuns: got ${taskRuns.length}, expected ${pipelineRunTasks.length}`)
+            }
+        }
+    }
+
+    /**
+     * Logs all taskRuns of a given pipelineRun.
+     * @param pipelineRun - The pipelineRun to log.
+     * @param developmentNamespace - The development namespace.
+     */
+    public async logTaskRuns(pipelineRun: PipelineRunKind, developmentNamespace: string) {
+        if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
+            const taskRuns = await this.getTaskRunsFromPipelineRun(pipelineRun.metadata.name)
+
+            for (const taskRun of taskRuns) {
+                if (taskRun.status && taskRun.status.podName) {
+                    await this.readNamespacedPodLog(taskRun.status.podName, developmentNamespace)
+                }
+            }
         }
     }
 }
