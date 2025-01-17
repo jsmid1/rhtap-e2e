@@ -12,7 +12,7 @@ import { gitLabJenkinsBasicTests } from "./suites-config/gitlab_suite_jenkins.ts
  */
 
 const springBootTemplateName = 'java-springboot';
-const stringOnRoute = 'Hello World!';
+const stringOnRoute = 'Hello World!';  
 
 const runSpringBootBasicTests = () => {
     const configuration = loadSoftwareTemplatesTestsGlobals();
@@ -25,3 +25,5 @@ const runSpringBootBasicTests = () => {
 };
 
 runSpringBootBasicTests();
+
+
