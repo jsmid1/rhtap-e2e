@@ -37,7 +37,10 @@ jobs:
       - name: Run ESLint
         env:
           SARIF_ESLINT_IGNORE_SUPPRESSED: "true"
-        run: yarn eslint
+        run: |
+          ls
+          yarn eslint --config=eslint.config.mjs
+      
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
