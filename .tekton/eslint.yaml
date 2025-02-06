@@ -34,7 +34,7 @@ spec:
         git checkout "$(params.git-revision)"
 
     - name: eslint-check
-      image: registry.access.redhat.com/ubi8/nodejs-18-minimal:1-141
+      image: node:18-alpine
       workingDir: /workspace
       script: |
         #!/bin/sh
