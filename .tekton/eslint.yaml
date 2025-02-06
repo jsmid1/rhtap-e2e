@@ -34,7 +34,7 @@ spec:
         git checkout "$(params.git-revision)"
 
     - name: eslint-check
-      image: node:23-alpine3.20
+      image: node:latest
       workingDir: /workspace
       script: |
         #!/bin/sh
