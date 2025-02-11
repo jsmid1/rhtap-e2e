@@ -5,6 +5,7 @@ import { generateRandomChars } from '../../../../src/utils/generator';
 import { GitHubProvider } from "../../../../src/apis/scm-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { checkEnvVariablesGitHub, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, checkIfAcsScanIsPass, verifySyftImagePath, getRHTAPGitopsNamespace } from "../../../../src/utils/test.utils";
+import { onPushPprTasks } from '../../const';
 
 
 /**
@@ -156,13 +157,10 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPushPprTasks);
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace);
+
                 expect(finished).toBe(true);
             }
         }, 900000);

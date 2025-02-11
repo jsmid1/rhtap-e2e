@@ -6,6 +6,7 @@ import { syncArgoApplication } from '../../../../src/utils/argocd';
 import { GitHubProvider } from "../../../../src/apis/scm-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { checkEnvVariablesGitHub, checkIfAcsScanIsPass, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, getRHTAPGitopsNamespace, verifySyftImagePath } from "../../../../src/utils/test.utils";
+import { onPullGitopsPprTasks, onPullPprTasks, onPushPprTasks } from '../../const';
 
 /**
  * Advanced end-to-end test scenario for Red Hat Trusted Application Pipelines:
@@ -178,13 +179,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullPprTasks);
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace);
+
                 expect(finished).toBe(true);
             }
         }, 900000);
@@ -208,13 +206,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPushPprTasks);
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace);
+
                 expect(finished).toBe(true);
             }
         }, 900000);
@@ -286,13 +281,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullGitopsPprTasks);
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace);
+
                 expect(finished).toBe(true);
             }
         }, 900000);
@@ -353,13 +345,10 @@ export const githubSoftwareTemplatesAdvancedScenarios = (gptTemplate: string) =>
 
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
-                const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
 
-                for (const iterator of tskRuns) {
-                    if (iterator.status && iterator.status.podName) {
-                        await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
-                    }
-                }
+                await kubeClient.checkTaskRuns(pipelineRun, onPullGitopsPprTasks);
+                await kubeClient.logTaskRuns(pipelineRun, developmentNamespace);
+
                 expect(finished).toBe(true);
             }
         }, 900000);
