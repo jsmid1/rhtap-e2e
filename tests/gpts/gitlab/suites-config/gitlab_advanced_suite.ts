@@ -1,10 +1,10 @@
 import { DeveloperHubClient } from "../../../../src/apis/backstage/developer-hub";
 import { TaskIdReponse } from "../../../../src/apis/backstage/types";
-import { GitLabProvider } from "../../../../src/apis/git-providers/gitlab";
+import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
 import { syncArgoApplication } from "../../../../src/utils/argocd";
-import { cleanAfterTestGitLab, checkEnvVariablesGitLab,  checkIfAcsScanIsPass, getDeveloperHubClient, getGitLabProvider, getRHTAPRootNamespace, createTaskCreatorOptionsGitlab, verifySyftImagePath } from "../../../../src/utils/test.utils";
+import { cleanAfterTestGitLab, checkEnvVariablesGitLab, checkIfAcsScanIsPass, getDeveloperHubClient, getGitLabProvider, createTaskCreatorOptionsGitlab, verifySyftImagePath, getRHTAPGitopsNamespace } from "../../../../src/utils/test.utils";
 
 /**
     * Advanced end-to-end test scenario for Red Hat Trusted Application Pipelines GitLab Provider:
@@ -37,7 +37,8 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         let gitopsPromotionMergeRequestNumber: number;
         let pipelineAsCodeRoute: string;
 
-        let RHTAPRootNamespace: string;
+        let RHTAPGitopsNamespace: string;
+
 
         const developmentEnvironmentName = 'development';
         const stagingEnvironmentName = 'stage';
@@ -54,9 +55,9 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
 
         const quayImageOrg = process.env.QUAY_IMAGE_ORG || '';
         const imageRegistry = process.env.IMAGE_REGISTRY || 'quay.io';
-        
-        beforeAll(async ()=> {
-            RHTAPRootNamespace = await getRHTAPRootNamespace();
+
+        beforeAll(async () => {
+            RHTAPGitopsNamespace = await getRHTAPGitopsNamespace();
             kubeClient = new Kubernetes();
             gitLabProvider = await getGitLabProvider(kubeClient);
             backstageClient = await getDeveloperHubClient(kubeClient);
@@ -83,10 +84,10 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         */
         it(`waits for ${softwareTemplateName} component creation to finish`, async () => {
             const taskCreated = await backstageClient.getTaskProcessed(developerHubTask.id, 120000);
-        
+
             if (taskCreated.status !== 'completed') {
                 console.log("Failed to create backstage task. Creating logs...");
-        
+
                 try {
                     const logs = await backstageClient.getEventStreamLog(taskCreated.id);
                     await backstageClient.writeLogsToArtifactDir('backstage-tasks-logs', `gitlab-${repositoryName}.log`, logs);
@@ -104,7 +105,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         it(`verifies if component ${softwareTemplateName} was created in GitLab and contains '.tekton' folder`, async () => {
             gitlabRepositoryID = await gitLabProvider.checkIfRepositoryExists(gitLabOrganization, repositoryName);
             expect(gitlabRepositoryID).toBeDefined();
-        
+
             const tektonFolderExists = await gitLabProvider.checkIfRepositoryHaveFolder(gitlabRepositoryID, '.tekton');
             expect(tektonFolderExists).toBe(true);
         }, 120000);
@@ -131,7 +132,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
         */
-        it(`creates WebHook for ${softwareTemplateName} projects: git project and gitops project`, async ()=> {
+        it(`creates WebHook for ${softwareTemplateName} projects: git project and gitops project`, async () => {
             await gitLabProvider.createProjectWebHook(gitlabRepositoryID, pipelineAsCodeRoute);
             await gitLabProvider.createProjectWebHook(gitlabGitopsRepositoryID, pipelineAsCodeRoute);
         }, 120000);
@@ -139,7 +140,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
         */
-        it(`creates a Merge Request for ${softwareTemplateName} component and check if pipeline run finish successfull`, async ()=> {
+        it(`creates a Merge Request for ${softwareTemplateName} component and check if pipeline run finish successfull`, async () => {
             const mergeRequestTitleName = 'Automatic Merge Request created from testing framework';
 
             mergeRequestNumber = await gitLabProvider.createMergeRequest(gitlabRepositoryID, generateRandomChars(6), mergeRequestTitleName);
@@ -154,7 +155,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
                 const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
-        
+
                 for (const iterator of tskRuns) {
                     if (iterator.status && iterator.status.podName) {
                         await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
@@ -163,7 +164,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
                 expect(finished).toBe(true);
             }
         }, 900000);
-      
+
         /**
         * Check if the pipelinerun yaml has the rh-syft image path mentioned
         * if failed to figure out the image path ,return pod yaml for reference
@@ -176,7 +177,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * verify if the ACS Scan is successfully done from the logs of task steps
         */
-        it(`Check if ACS Scan is successful for ${softwareTemplateName}`, async ()=> {
+        it(`Check if ACS Scan is successful for ${softwareTemplateName}`, async () => {
             const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, developmentNamespace);
             expect(result).toBe(true);
             console.log("Verified as ACS Scan is Successful");
@@ -185,7 +186,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Merges a merge request and waits until a pipeline run push is created in the cluster and start to wait until succeed/fail.
         */
-        it(`merge merge_request for component ${softwareTemplateName} and waits until push pipelinerun finished successfully`, async ()=> {
+        it(`merge merge_request for component ${softwareTemplateName} and waits until push pipelinerun finished successfully`, async () => {
             await gitLabProvider.mergeMergeRequest(gitlabRepositoryID, mergeRequestNumber);
 
             const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'Push');
@@ -197,7 +198,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
                 const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
-        
+
                 for (const iterator of tskRuns) {
                     if (iterator.status && iterator.status.podName) {
                         await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
@@ -210,14 +211,14 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
          * Obtain the openshift Route for the component and verify that the previous builded image was synced in the cluster
          */
-        it('container component is successfully synced by gitops in development environment', async ()=> {
+        it('container component is successfully synced by gitops in development environment', async () => {
             console.log("syncing argocd application in development environment");
             await syncArgoApplication('rhtap', `${repositoryName}-${developmentEnvironmentName}`);
-        
+
             const componentRoute = await kubeClient.getOpenshiftRoute(repositoryName, developmentNamespace);
-        
+
             const isReady = await backstageClient.waitUntilComponentEndpointBecomeReady(`https://${componentRoute}/hello-resteasy`, 10 * 60 * 1000);
-        
+
             if (!isReady) {
                 throw new Error("Component seems was not synced by ArgoCD in 10 minutes");
             }
@@ -227,7 +228,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
         * Trigger a promotion Pull Request in Gitops repository to promote stage image to prod environment
         */
-        it('trigger pull request promotion to promote from development to stage environment', async ()=> {
+        it('trigger pull request promotion to promote from development to stage environment', async () => {
             gitopsPromotionMergeRequestNumber = await gitLabProvider.createMergeRequestWithPromotionImage(gitlabGitopsRepositoryID, generateRandomChars(6),
                 repositoryName, developmentEnvironmentName, stagingEnvironmentName);
             expect(gitopsPromotionMergeRequestNumber).toBeDefined();
@@ -241,7 +242,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
                 const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
-        
+
                 for (const iterator of tskRuns) {
                     if (iterator.status && iterator.status.podName) {
                         await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
@@ -254,21 +255,21 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Merge the gitops Pull Request with the new image value. Expect that argocd will sync the new image in stage 
         */
-        it(`merge gitops pull request to sync new image in stage environment`, async ()=> {
+        it(`merge gitops pull request to sync new image in stage environment`, async () => {
             await gitLabProvider.mergeMergeRequest(gitlabGitopsRepositoryID, gitopsPromotionMergeRequestNumber);
         }, 120000);
 
         /*
             * Verifies if the new image is deployed with an expected endpoint in stage environment
         */
-        it('container component is successfully synced by gitops in stage environment', async ()=> {
+        it('container component is successfully synced by gitops in stage environment', async () => {
             console.log("syncing argocd application in stage environment");
-            await syncArgoApplication(RHTAPRootNamespace, `${repositoryName}-${stagingEnvironmentName}`);
-        
+            await syncArgoApplication(RHTAPGitopsNamespace, `${repositoryName}-${stagingEnvironmentName}`);
+
             const componentRoute = await kubeClient.getOpenshiftRoute(repositoryName, stageNamespace);
-        
+
             const isReady = await backstageClient.waitUntilComponentEndpointBecomeReady(`https://${componentRoute}/hello-resteasy`, 10 * 60 * 1000);
-        
+
             if (!isReady) {
                 throw new Error("Component seems was not synced by ArgoCD in 10 minutes");
             }
@@ -277,21 +278,21 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Trigger a promotion Pull Request in Gitops repository to promote stage image to prod environment
         */
-        it('trigger pull request promotion to promote from stage to prod environment', async ()=> {
+        it('trigger pull request promotion to promote from stage to prod environment', async () => {
             gitopsPromotionMergeRequestNumber = await gitLabProvider.createMergeRequestWithPromotionImage(gitlabGitopsRepositoryID, generateRandomChars(6),
                 repositoryName, stagingEnvironmentName, productionEnvironmentName);
             expect(gitopsPromotionMergeRequestNumber).toBeDefined();
-        
+
             const pipelineRun = await kubeClient.getPipelineRunByRepository(`${repositoryName}-gitops`, 'Merge_Request');
-        
+
             if (pipelineRun === undefined) {
                 throw new Error("Error to read pipelinerun from the cluster. Seems like pipelinerun was never created; verrfy PAC controller logs.");
             }
-        
+
             if (pipelineRun && pipelineRun.metadata && pipelineRun.metadata.name) {
                 const finished = await kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, developmentNamespace, 900000);
                 const tskRuns = await kubeClient.getTaskRunsFromPipelineRun(pipelineRun.metadata.name);
-                
+
                 for (const iterator of tskRuns) {
                     if (iterator.status && iterator.status.podName) {
                         await kubeClient.readNamespacedPodLog(iterator.status.podName, developmentNamespace);
@@ -304,21 +305,21 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         /**
             * Merge the gitops Pull Request with the new image value. Expect that argocd will sync the new image in stage 
         */
-        it.skip(`merge gitops pull request to sync new image in prod environment`, async ()=> {
+        it.skip(`merge gitops pull request to sync new image in prod environment`, async () => {
             await gitLabProvider.mergeMergeRequest(gitlabGitopsRepositoryID, gitopsPromotionMergeRequestNumber);
         }, 120000);
 
         /*
             * Verifies if the new image is deployed with an expected endpoint in stage environment
         */
-        it.skip('container component is successfully synced by gitops in prod environment', async ()=> {
+        it.skip('container component is successfully synced by gitops in prod environment', async () => {
             console.log("syncing argocd application in prod environment");
             await syncArgoApplication('rhtap', `${repositoryName}-${productionEnvironmentName}`);
-                
+
             const componentRoute = await kubeClient.getOpenshiftRoute(repositoryName, prodNamespace);
-                
+
             const isReady = await backstageClient.waitUntilComponentEndpointBecomeReady(`https://${componentRoute}/hello-resteasy`, 10 * 60 * 1000);
-                
+
             if (!isReady) {
                 throw new Error("Component seems was not synced by ArgoCD in 10 minutes");
             }
@@ -329,7 +330,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         */
         afterAll(async () => {
             if (process.env.CLEAN_AFTER_TESTS === 'true') {
-                await cleanAfterTestGitLab(gitLabProvider, kubeClient, RHTAPRootNamespace, gitLabOrganization, gitlabRepositoryID, repositoryName);
+                await cleanAfterTestGitLab(gitLabProvider, kubeClient, RHTAPGitopsNamespace, gitLabOrganization, gitlabRepositoryID, repositoryName);
             }
         });
     });
