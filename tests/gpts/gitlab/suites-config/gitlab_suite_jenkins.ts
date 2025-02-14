@@ -4,8 +4,9 @@ import { TaskIdReponse } from "../../../../src/apis/backstage/types";
 import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
-import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRootNamespace} from "../../../../src/utils/test.utils";
-import { JenkinsCI } from "../../../../src/apis/ci/jenkins";
+import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, checkJenkinsBuildStages, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRootNamespace} from "../../../../src/utils/test.utils";
+import { JenkinsCI } from "../../../../src/apis/ci/jenkins/jenkins";
+import { jenkinsBuildStages } from '../../const';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -136,6 +137,15 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
             await new Promise(resolve => setTimeout(resolve, 5000));
             await jenkinsClient.waitForBuildToFinish(repositoryName, 1, 540000);
         }, 600000);
+
+        /**
+         * Checks stages executed during build
+         */
+        it(`Check stages executed in Jenkins build`, async () => {
+            const build = await jenkinsClient.getLastJenkinsBuild(repositoryName);
+            expect(build).not.toBe(null);
+            expect(checkJenkinsBuildStages(build, jenkinsBuildStages)).toBe(null);
+        }, 900000);
 
 
         /**

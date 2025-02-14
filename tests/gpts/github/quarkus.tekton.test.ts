@@ -11,7 +11,7 @@ import { githubSoftwareTemplatesAdvancedScenarios } from "./test-config/github_a
  * @group advanced
  */
 
-const quarkusTemplateName = 'java-quarkus';
+const quarkusTemplateName = 'python';
 
 const runQuarkusBasicTests = () => {
     const configuration = loadSoftwareTemplatesTestsGlobals();

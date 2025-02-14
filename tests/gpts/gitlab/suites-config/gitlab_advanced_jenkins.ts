@@ -4,9 +4,10 @@ import { TaskIdReponse } from "../../../../src/apis/backstage/types";
 import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
-import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace, getRHTAPRootNamespace} from "../../../../src/utils/test.utils";
-import { JenkinsCI } from "../../../../src/apis/ci/jenkins";
+import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, checkJenkinsBuildStages, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace, getRHTAPRootNamespace} from "../../../../src/utils/test.utils";
+import { JenkinsCI } from "../../../../src/apis/ci/jenkins/jenkins";
 import { Utils } from "../../../../src/apis/scm-providers/utils";
+import { jenkinsBuildStages } from '../../const';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -165,6 +166,15 @@ export const gitLabJenkinsAdvancedTests = (softwareTemplateName: string, stringO
             expect(jobStatus).not.toBe(undefined);
             expect(jobStatus).toBe("SUCCESS");
         }, 600000);
+
+        /**
+         * Checks stages executed during build
+         */
+        it(`Check stages executed in Jenkins build`, async () => {
+            const build = await jenkinsClient.getLastJenkinsBuild(repositoryName);
+            expect(build).not.toBe(null);
+            expect(checkJenkinsBuildStages(build, jenkinsBuildStages)).toBe(null);
+        }, 900000);
 
         /**
         * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136

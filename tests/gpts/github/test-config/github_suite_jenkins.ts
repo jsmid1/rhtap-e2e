@@ -2,10 +2,11 @@ import { DeveloperHubClient } from '../../../../src/apis/backstage/developer-hub
 import { TaskIdReponse } from '../../../../src/apis/backstage/types';
 import { generateRandomChars } from '../../../../src/utils/generator';
 import { GitHubProvider } from "../../../../src/apis/scm-providers/github";
-import { JenkinsCI } from "../../../../src/apis/ci/jenkins";
+import { JenkinsCI } from "../../../../src/apis/ci/jenkins/jenkins";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
-import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitHub, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace, getRHTAPRootNamespace } from "../../../../src/utils/test.utils";
+import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitHub, checkJenkinsBuildStages, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace, getRHTAPRootNamespace } from "../../../../src/utils/test.utils";
 import { Utils } from '../../../../src/apis/scm-providers/utils';
+import { jenkinsBuildStages } from '../../const';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -152,6 +153,16 @@ export const gitHubJenkinsBasicGoldenPathTemplateTests = (gptTemplate: string, s
             const jobStatus = await jenkinsClient.waitForBuildToFinish(repositoryName, 1, 600000);
             expect(jobStatus).not.toBe(undefined);
             expect(jobStatus).toBe("SUCCESS");
+        }, 900000);
+
+
+        /**
+         * Checks stages executed during build
+         */
+        it(`Check stages executed in Jenkins build`, async () => {
+            const build = await jenkinsClient.getLastJenkinsBuild(repositoryName);
+            expect(build).not.toBe(null);
+            expect(checkJenkinsBuildStages(build, jenkinsBuildStages)).toBe(null);
         }, 900000);
 
         /**

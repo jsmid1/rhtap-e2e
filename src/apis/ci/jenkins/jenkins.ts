@@ -1,5 +1,6 @@
 import axios, { Axios } from 'axios';
-import { Utils } from '../scm-providers/utils';
+import { Utils } from '../../scm-providers/utils';
+import { JenkinsBuild } from 'jenkins-api-ts-typings';
 
 export class JenkinsCI extends Utils {
     // Jenkins server details
@@ -201,6 +202,25 @@ export class JenkinsCI extends Utils {
             }
         } catch (error) {
             console.error('Error getting latest build number:', error);
+            return null;
+        }
+    }
+
+    public async getLastJenkinsBuild(jobName: string): Promise<JenkinsBuild | null> {
+        const url = `${this.jenkinsUrl}/job/${jobName}/lastBuild/wfapi/`;
+
+        try {
+            const response = await this.axiosInstance.post(url);
+            const build = response.data;
+
+            if (!build) {
+                console.log(`No builds found for job '${jobName}'.`);
+                return null;
+            }
+            return build;
+
+        } catch (error) {
+            console.error('Error getting latest build:', error);
             return null;
         }
     }

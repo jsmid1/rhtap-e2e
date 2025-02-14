@@ -3,10 +3,11 @@ import { GitHubProvider } from "../../src/apis/scm-providers/github";
 import { BitbucketProvider } from "../../src/apis/scm-providers/bitbucket";
 import { Kubernetes } from "../../src/apis/kubernetes/kube";
 import { DeveloperHubClient } from "../../src/apis/backstage/developer-hub";
-import { JenkinsCI } from "../../src/apis/ci/jenkins";
+import { JenkinsCI } from "../apis/ci/jenkins/jenkins";
 import { ScaffolderScaffoldOptions } from "@backstage/plugin-scaffolder-react";
 import { syncArgoApplication } from "./argocd";
 import { TaskIdReponse } from "../../src/apis/backstage/types";
+import { JenkinsBuild } from "../apis/ci/jenkins/type";
 
 export async function cleanAfterTestGitHub(gitHubClient: GitHubProvider, kubeClient: Kubernetes, gitopsNamespace: string, githubOrganization: string, repositoryName: string) {
     //Check, if gitops repo exists and delete
@@ -123,7 +124,7 @@ export async function getGitLabProvider(kubeClient: Kubernetes) {
 }
 
 export async function getBitbucketClient(kubeClient: Kubernetes) {
-    if (process.env.BITBUCKET_APP_PASSWORD && process.env.BITBUCKET_USERNAME ) {
+    if (process.env.BITBUCKET_APP_PASSWORD && process.env.BITBUCKET_USERNAME) {
         return new BitbucketProvider(process.env.BITBUCKET_USERNAME, process.env.BITBUCKET_APP_PASSWORD);
     } else {
         const bitbucketUserName = await kubeClient.getDeveloperHubSecret(await getRHTAPRHDHNamespace(), "developer-hub-rhtap-env", "BITBUCKET__USERNAME");
@@ -371,7 +372,7 @@ export async function waitForJenkinsJobToFinish(jenkinsClient: JenkinsCI, jobNam
  * @throws {Error} If the pipeline run cannot be found or if there is an error interacting with the Kubernetes API.
  * 
  */
-export async function checkIfAcsScanIsPass(kubeClient: Kubernetes, repositoryName: string, developmentNamespace: string):Promise<boolean> {
+export async function checkIfAcsScanIsPass(kubeClient: Kubernetes, repositoryName: string, developmentNamespace: string): Promise<boolean> {
     const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, 'push');
     if (pipelineRun?.metadata?.name) {
         const podName: string = pipelineRun.metadata.name + '-acs-image-scan-pod';
@@ -407,7 +408,7 @@ export async function waitForGitLabCIPipelineToFinish(gitLabProvider: GitLabProv
     await gitLabProvider.waitForPipelinesToBeCreated(gitlabRepositoryID, pipelineRunNumber, 10000);
     const response = await gitLabProvider.getLatestPipeline(gitlabRepositoryID);
 
-    if(response?.id){
+    if (response?.id) {
         const pipelineResult = await gitLabProvider.waitForPipelineToFinish(gitlabRepositoryID, response.id, 540000);
         expect(pipelineResult).toBe("success");
     }
@@ -448,4 +449,17 @@ export async function verifySyftImagePath(kubeClient: Kubernetes, repositoryName
     }
     return result;
 
+}
+
+export function checkJenkinsBuildStages(build: JenkinsBuild, stageNames: string[]): string | null {
+    for (const stage of build.stages) {
+        if (!stageNames.includes(stage.name)) {
+            return `Unexpected taskRun: ${stage.name}`;
+        }
+
+        if (build.stages.length !== stageNames.length) {
+            return `Unexpected number of taskRuns: got ${build.stages.length}, expected ${stageNames.length}`;
+        }
+    }
+    return null;
 }
