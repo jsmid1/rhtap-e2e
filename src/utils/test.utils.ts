@@ -158,7 +158,7 @@ export async function getCosignPublicKey(kubeClient: Kubernetes) {
     }
 }
 
-export async function waitForComponentCreation(backstageClient: DeveloperHubClient, repositoryName: string, developerHubTask: TaskIdReponse) {
+export async function waitForComponentCreation(backstageClient: DeveloperHubClient, repositoryName: string, developerHubTask: TaskIdReponse): Promise<boolean> {
     const taskCreated = await backstageClient.getTaskProcessed(developerHubTask.id, 120000);
 
     if (taskCreated.status !== 'completed') {
@@ -170,9 +170,13 @@ export async function waitForComponentCreation(backstageClient: DeveloperHubClie
         } catch (error) {
             throw new Error(`Failed to write logs to artifact directory: ${error}`);
         }
-    } else {
-        console.log("Task created successfully in backstage");
+
+        return false;
     }
+
+    console.log("Task created successfully in backstage");
+    return true;
+    
 }
 
 export async function checkComponentSyncedInArgoAndRouteIsWorking(kubeClient: Kubernetes, backstageClient: DeveloperHubClient, namespaceName: string, environmentName: string, repositoryName: string, stringOnRoute: string) {
@@ -296,7 +300,7 @@ export async function createTaskCreatorOptionsGitlab(softwareTemplateName: strin
     * @param {string} componentRootNamespace Kubernetes namespace where ArgoCD will create component manifests.
     * @param {string} ciType CI Type: "jenkins" "tekton"
 */
-export async function createTaskCreatorOptionsGitHub(softwareTemplateName: string, imageName: string, imageOrg: string, imageRegistry: string, gitLabOrganization: string, repositoryName: string, componentRootNamespace: string, ciType: string): Promise<ScaffolderScaffoldOptions> {
+export async function createTaskCreatorOptionsGitHub(softwareTemplateName: string, imageName: string, imageOrg: string, imageRegistry: string, githubOrganization: string, repositoryName: string, componentRootNamespace: string, ciType: string): Promise<ScaffolderScaffoldOptions> {
     const taskCreatorOptions: ScaffolderScaffoldOptions = {
         templateRef: `template:default/${softwareTemplateName}`,
         values: {
@@ -310,7 +314,7 @@ export async function createTaskCreatorOptionsGitHub(softwareTemplateName: strin
             namespace: componentRootNamespace,
             owner: "user:guest",
             repoName: repositoryName,
-            ghOwner: gitLabOrganization,
+            ghOwner: githubOrganization,
             ciType: ciType
         }
     };
@@ -362,40 +366,6 @@ export async function waitForJenkinsJobToFinish(jenkinsClient: JenkinsCI, jobNam
     expect(jobStatus).toBe("SUCCESS");
 }
 
-/**
- * Checks whether an ACS scan has passed for a given repository.
- * 
- * This function retrieves the pipeline run associated with a repository, looks for the 
- * ACS image scan pod related to the pipeline, and checks the container logs to determine 
- * if the scan was successful.
- * 
- * @param {string} repositoryName - The name of the repository for which the pipeline run is triggered.
- * @param {string} ciNamespace - The Kubernetes namespace where the CI resources (including the ACS scan pod) are deployed.
- * @param {string} eventType - The type of the event which triggered the pipeline.
- * @returns {Promise<boolean>} A Promise that resolves to `true` if the ACS scan was successful, or `false` if not.
- * @throws {Error} If the pipeline run cannot be found or if there is an error interacting with the Kubernetes API.
- * 
- */
-export async function checkIfAcsScanIsPass(kubeClient: Kubernetes, repositoryName: string, ciNamespace: string, eventType: string): Promise<boolean> {
-    const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, eventType);
-    if (pipelineRun?.metadata?.name) {
-        const podName: string = pipelineRun.metadata.name + '-acs-image-scan-pod';
-        // Read the logs from the related container
-        const podLogs: unknown = await kubeClient.readContainerLogs(podName, ciNamespace, 'step-rox-image-scan');
-        if (typeof podLogs !== "string") {
-            throw new Error(`Failed to retrieve container logs: Expected a string but got ${typeof podLogs}`);
-        }
-        // Print the logs from the container 
-        console.log("Logs from acs-image-scan for pipelineRun " + pipelineRun.metadata.name + ": \n\n" + podLogs);
-        const regex = new RegExp("\"result\":\"SUCCESS\"", 'i');
-        // Verify if the scan was success from logs
-        const result: boolean = regex.test(podLogs);
-        return (result);
-    }
-    // Returns false when if condition not met
-    return false;
-}
-
 export async function setSecretsForGitLabCI(gitLabProvider: GitLabProvider, gitlabRepositoryID: number, kubeClient: Kubernetes) {
     await gitLabProvider.setEnvironmentVariable(gitlabRepositoryID, "COSIGN_PUBLIC_KEY", await getCosignPublicKey(kubeClient));
     await gitLabProvider.setEnvironmentVariable(gitlabRepositoryID, "COSIGN_SECRET_KEY", await getCosignPrivateKey(kubeClient));
@@ -424,43 +394,6 @@ export async function waitForGitLabCIPipelineToFinish(gitLabProvider: GitLabProv
 }
 
 /**
- * Verifies the syft image path used for pipelinerun
- * 
- * This function retrieves the pipeline run associated with a repository, looks for the 
- * build-container pod related to the pipeline, and verifies the rh-syft image path 
- * If not found,return pod yaml for reference
- * 
- * @param {string} repositoryName - The name of the repository for which the pipeline run is triggered.
- * @param {string} ciNamespace - The Kubernetes namespace where the CI resources (including the ACS scan pod) are deployed.
- * @param {string} eventType - The type of the event which triggered the pipeline.
- * @returns {Promise<boolean>} A Promise that resolves to `true` if image verification is successful, or `false` if not.
- * @throws {Error} If the pipeline run cannot be found or if there is an error interacting with the Kubernetes API.
- * 
- */
-export async function verifySyftImagePath(kubeClient: Kubernetes, repositoryName: string, ciNamespace: string, eventType: string): Promise<boolean> {
-    const pipelineRun = await kubeClient.getPipelineRunByRepository(repositoryName, eventType);
-    let result = true;
-    if (pipelineRun?.metadata?.name) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const doc: any = await kubeClient.pipelinerunfromName(pipelineRun.metadata.name, ciNamespace);
-        const index = doc.spec.pipelineSpec.tasks.findIndex((item: { name: string; }) => item.name === "build-container");
-        const regex = new RegExp("registry.redhat.io/rh-syft-tech-preview/syft-rhel9", 'i');
-        const imageIndex: number = (doc.spec.pipelineSpec.tasks[index].taskSpec.steps.findIndex((item: { image: string; }) => regex.test(item.image)));
-        if (imageIndex !== -1) {
-            console.log("The image path found is " + doc.spec.pipelineSpec.tasks[index].taskSpec.steps[imageIndex].image);
-        }
-        else {
-            const podName: string = pipelineRun.metadata.name + '-build-container-pod';
-            // Read the yaml of the given pod
-            const podYaml = await kubeClient.getPodYaml(podName, ciNamespace);
-            console.log(`The image path not found.The build-container pod yaml is : \n${podYaml}`);
-            result = false;
-        }
-    }
-    return result;
-}
-
-/**
  * Search SBOm in trustification by string, which could be SBOM name, SBOm version...
  * 
  * @param {Kubernetes} kubeClient - Kubernetes client.
@@ -481,8 +414,10 @@ export async function checkSBOMInTrustification(kubeClient: Kubernetes, searchSt
         console.log('SBOM Data:', sbomData);
     } catch (error) {
         console.error('Error fetching SBOM data:', error);
-        throw error;
+        return false;
     }
+
+    return true;
 }
 
 export async function setSecretsForJenkinsInFolder(jenkinsClient: JenkinsCI, kubeClient: Kubernetes, folderName: string, isGitLab = false) {

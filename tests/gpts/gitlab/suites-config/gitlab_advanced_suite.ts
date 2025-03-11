@@ -4,9 +4,9 @@ import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
 import { syncArgoApplication } from "../../../../src/utils/argocd";
-import { cleanAfterTestGitLab, checkEnvVariablesGitLab, checkIfAcsScanIsPass, getDeveloperHubClient, getGitLabProvider, createTaskCreatorOptionsGitlab, verifySyftImagePath, checkSBOMInTrustification, getRHTAPGitopsNamespace, waitForComponentCreation } from "../../../../src/utils/test.utils";
-import { Tekton } from '../../../../src/utils/tekton';
+import { cleanAfterTestGitLab, checkEnvVariablesGitLab, getDeveloperHubClient, getGitLabProvider, createTaskCreatorOptionsGitlab, checkSBOMInTrustification, getRHTAPGitopsNamespace, waitForComponentCreation } from "../../../../src/utils/test.utils";
 import { onPullTasks, onPushTasks, onPullGitopsTasks } from '../../../../src/constants/tekton';
+import { TektonTestBlocks } from '../../../test-blocks/tekton';
 
 /**
     * Advanced end-to-end test scenario for Red Hat Trusted Application Pipelines GitLab Provider:
@@ -33,7 +33,6 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         let developerHubTask: TaskIdReponse;
         let gitLabProvider: GitLabProvider;
         let kubeClient: Kubernetes;
-        let tektonClient: Tekton;
 
         let gitlabRepositoryID: number;
         let gitlabGitopsRepositoryID: number;
@@ -42,6 +41,8 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         let pipelineAsCodeRoute: string;
 
         let RHTAPGitopsNamespace: string;
+    
+        let tektonTestBlocks: TektonTestBlocks;
 
 
         const developmentEnvironmentName = 'development';
@@ -62,9 +63,11 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         beforeAll(async () => {
             RHTAPGitopsNamespace = await getRHTAPGitopsNamespace();
             kubeClient = new Kubernetes();
-            tektonClient = new Tekton();
+            tektonTestBlocks = new TektonTestBlocks(kubeClient);
             gitLabProvider = await getGitLabProvider(kubeClient);
             backstageClient = await getDeveloperHubClient(kubeClient);
+
+            tektonTestBlocks = new TektonTestBlocks(kubeClient);
 
             const componentRoute = await kubeClient.getOpenshiftRoute('pipelines-as-code-controller', 'openshift-pipelines');
             pipelineAsCodeRoute = `https://${componentRoute}`;
@@ -137,8 +140,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             mergeRequestNumber = await gitLabProvider.createMergeRequest(gitlabRepositoryID, generateRandomChars(6), mergeRequestTitleName);
             expect(mergeRequestNumber).toBeDefined();
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'Merge_Request', onPullTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'Merge_Request', onPullTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -147,8 +149,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         it(`merge merge_request for component ${softwareTemplateName} and waits until push pipelinerun finished successfully`, async () => {
             await gitLabProvider.mergeMergeRequest(gitlabRepositoryID, mergeRequestNumber);
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'Push', onPushTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'Push', onPushTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -156,7 +157,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
         * if failed to figure out the image path ,return pod yaml for reference
         */
         it(`Check ${softwareTemplateName} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'Push');
+            const result = await tektonTestBlocks.verifySyftImagePath(repositoryName, ciNamespace, 'Push');
             expect(result).toBe(true);
         }, 900000);
 
@@ -164,7 +165,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
             * verify if the ACS Scan is successfully done from the logs of task steps
         */
         it(`Check if ACS Scan is successful for ${softwareTemplateName}`, async () => {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'Push');
+            const result =  await tektonTestBlocks.checkIfAcsScanIsPass(repositoryName, ciNamespace, 'Push');
             expect(result).toBe(true);
             console.log("Verified as ACS Scan is Successful");
         }, 900000);
@@ -194,8 +195,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
                 repositoryName, developmentEnvironmentName, stagingEnvironmentName);
             expect(gitopsPromotionMergeRequestNumber).toBeDefined();
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, 'Merge_Request', onPullGitopsTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(`${repositoryName}-gitops`, ciNamespace, 'Merge_Request', onPullGitopsTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -229,8 +229,7 @@ export const gitLabSoftwareTemplatesAdvancedScenarios = (softwareTemplateName: s
                 repositoryName, stagingEnvironmentName, productionEnvironmentName);
             expect(gitopsPromotionMergeRequestNumber).toBeDefined();
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, 'Merge_Request', onPullGitopsTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(`${repositoryName}-gitops`, ciNamespace, 'Merge_Request', onPullGitopsTasks)).toBe(true);
         }, 900000);
 
         /**

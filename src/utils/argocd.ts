@@ -2,6 +2,7 @@
 import { exec } from 'child_process';
 
 export const syncArgoApplication = async (namespace: string, applicationName: string) => {
+    console.log(`syncing argocd application: ${applicationName} in ${namespace}`);
     const scriptCommands = `
         # Check if base64 command exists
         if ! command -v base64 &> /dev/null

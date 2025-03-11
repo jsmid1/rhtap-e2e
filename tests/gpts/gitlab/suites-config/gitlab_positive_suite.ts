@@ -4,9 +4,9 @@ import { TaskIdReponse } from "../../../../src/apis/backstage/types";
 import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
-import { checkEnvVariablesGitLab, checkIfAcsScanIsPass, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getRHTAPGitopsNamespace, verifySyftImagePath, waitForComponentCreation } from "../../../../src/utils/test.utils";
-import { Tekton } from '../../../../src/utils/tekton';
+import { checkEnvVariablesGitLab, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getRHTAPGitopsNamespace, waitForComponentCreation } from "../../../../src/utils/test.utils";
 import { onPushTasks } from '../../../../src/constants/tekton';
+import { TektonTestBlocks } from '../../../test-blocks/tekton';
 
 /**
  * 1. Creates a component in Red Hat Developer Hub.
@@ -25,7 +25,8 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
         let developerHubTask: TaskIdReponse;
         let gitLabProvider: GitLabProvider;
         let kubeClient: Kubernetes;
-        let tektonClient: Tekton;
+
+        let tektonTestBlocks: TektonTestBlocks;
 
         let gitlabRepositoryID: number;
         let pipelineAsCodeRoute: string;
@@ -46,7 +47,7 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
             RHTAPGitopsNamespace = await getRHTAPGitopsNamespace();
 
             kubeClient = new Kubernetes();
-            tektonClient = new Tekton();
+            tektonTestBlocks = new TektonTestBlocks(kubeClient);
             gitLabProvider = await getGitLabProvider(kubeClient);
             backstageClient = await getDeveloperHubClient(kubeClient);
 
@@ -121,8 +122,7 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
             * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
         */
         it(`Wait component ${softwareTemplateName} pipelinerun to be triggered and finished`, async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'Push', onPushTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'Push', onPushTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -130,16 +130,14 @@ export const gitLabProviderBasicTests = (softwareTemplateName: string) => {
          * if failed to figure out the image path ,return pod yaml for reference
          */
         it(`Check ${softwareTemplateName} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'Push');
-            expect(result).toBe(true);
+            expect(await tektonTestBlocks.verifySyftImagePath(repositoryName, ciNamespace, 'Push')).toBe(true);
         }, 900000);
 
         /**
          * verify if the ACS Scan is successfully done from the logs of task steps
          */
         it(`Check if ACS Scan is successful for ${softwareTemplateName}`, async () => {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'Push');
-            expect(result).toBe(true);
+            expect(await tektonTestBlocks.checkIfAcsScanIsPass(repositoryName, ciNamespace, 'push')).toBe(true);
             console.log("Verified as ACS Scan is Successful");
         }, 900000);
 

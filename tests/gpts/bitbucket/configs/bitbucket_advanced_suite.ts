@@ -4,9 +4,9 @@ import { TaskIdReponse } from '../../../../src/apis/backstage/types';
 import { generateRandomChars } from '../../../../src/utils/generator';
 import { BitbucketProvider } from "../../../../src/apis/scm-providers/bitbucket";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
-import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesBitbucket, checkIfAcsScanIsPass, cleanAfterTestBitbucket, createTaskCreatorOptionsBitbucket, getDeveloperHubClient, getBitbucketClient, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace, verifySyftImagePath } from "../../../../src/utils/test.utils";
-import { Tekton } from '../../../../src/utils/tekton';
+import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesBitbucket, cleanAfterTestBitbucket, createTaskCreatorOptionsBitbucket, getDeveloperHubClient, getBitbucketClient, getRHTAPGitopsNamespace, getRHTAPRHDHNamespace } from "../../../../src/utils/test.utils";
 import { onPullTasks, onPushTasks, onPullGitopsTasks } from '../../../../src/constants/tekton';
+import { TektonTestBlocks } from '../../../test-blocks/tekton';
 
 /**
  * Advanced end-to-end test scenario for Red Hat Trusted Application Pipelines:
@@ -53,7 +53,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
         let backstageClient: DeveloperHubClient;
         let bitbucketClient: BitbucketProvider;
         let kubeClient: Kubernetes;
-        let tektonClient: Tekton;
+        let tektonTestBlocks: TektonTestBlocks;
         let pipelineAsCodeRoute: string;
 
         let pullRequestID: number;
@@ -69,7 +69,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
         beforeAll(async()=> {
             RHTAPGitopsNamespace = await getRHTAPGitopsNamespace();
             kubeClient = new Kubernetes();
-            tektonClient = new Tekton();
+            tektonTestBlocks = new TektonTestBlocks(kubeClient);
             bitbucketClient = await getBitbucketClient(kubeClient);
             backstageClient = await getDeveloperHubClient(kubeClient);
             bitbucketUsername = await kubeClient.getDeveloperHubSecret(await getRHTAPRHDHNamespace(), "developer-hub-rhtap-env", "BITBUCKET__USERNAME");
@@ -177,8 +177,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} pull request pipelinerun to be triggered and finished`, async ()=> {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'pull_request', onPullTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'pull_request', onPullTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -192,8 +191,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} push pipelinerun to be triggered and finished`, async ()=> {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'push', onPushTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'push', onPushTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -201,7 +199,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
         * if failed to figure out the image path ,return pod yaml for reference
         */
         it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await tektonTestBlocks.verifySyftImagePath(repositoryName, ciNamespace, 'push');
             expect(result).toBe(true);
         }, 900000);
 
@@ -209,7 +207,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
          * verify if the ACS Scan is successfully done from the logs of task steps
          */
         it(`Check if ACS Scan is successful for ${gptTemplate}`, async ()=> {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await tektonTestBlocks.checkIfAcsScanIsPass(repositoryName, ciNamespace, 'push');
             expect(result).toBe(true);
             console.log("Verified as ACS Scan is Successful");
         }, 900000);
@@ -228,8 +226,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
             gitopsPromotionPulrequestID = await bitbucketClient.createPromotionPullrequest(bitbucketWorkspace, repositoryName, developmentEnvironmentName, stagingEnvironmentName);
             expect(gitopsPromotionPulrequestID).toBeDefined();
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(gitopsRepoName, ciNamespace, 'pull_request', onPullGitopsTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(gitopsRepoName, ciNamespace, 'pull_request', onPullGitopsTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -253,8 +250,7 @@ export const bitbucketSoftwareTemplatesAdvancedScenarios = (gptTemplate: string,
             gitopsPromotionPulrequestID = await bitbucketClient.createPromotionPullrequest(bitbucketWorkspace, repositoryName, stagingEnvironmentName, productionEnvironmentName);
             expect(gitopsPromotionPulrequestID).toBeDefined();
 
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(gitopsRepoName, ciNamespace, 'pull_request', onPullGitopsTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(gitopsRepoName, ciNamespace, 'pull_request', onPullGitopsTasks)).toBe(true);
         }, 900000);
 
         /**

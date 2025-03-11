@@ -2,7 +2,7 @@ import { PipelineRunKind, TaskRunKind } from '@janus-idp/shared-react';
 import { Kubernetes } from '../apis/kubernetes/kube';
 
 
-export class Tekton {
+export class TektonUtils {
     private readonly kubeClient: Kubernetes;
 
     /**
@@ -97,20 +97,6 @@ export class Tekton {
                     await this.kubeClient.readNamespacedPodLog(taskRun.status.podName, namespace);
                 }
             }
-        }
-    }
-
-    public async verifyPipelineRunByRepository(repositoryName: string, namespace: string, eventType: string, expectedTasks: string[]) {
-        const pipelineRun = await this.kubeClient.getPipelineRunByRepository(repositoryName, eventType);
-        if (pipelineRun === undefined) {
-            throw new Error("Error to read pipelinerun from the cluster. Seems like pipelinerun was never created; verify PAC controller logs.");
-        }
-    
-        if (pipelineRun?.metadata?.name) {
-            const finished = await this.kubeClient.waitPipelineRunToBeFinished(pipelineRun.metadata.name, namespace, 900000);
-
-            await this.logTaskRuns(pipelineRun, namespace);
-            return finished && await this.checkTaskRuns(pipelineRun, expectedTasks);
         }
     }
 }

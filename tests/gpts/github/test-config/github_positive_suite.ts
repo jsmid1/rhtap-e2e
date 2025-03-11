@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
-import { DeveloperHubClient } from '../../../../src/apis/backstage/developer-hub';
-import { TaskIdReponse } from '../../../../src/apis/backstage/types';
 import { generateRandomChars } from '../../../../src/utils/generator';
 import { GitHubProvider } from "../../../../src/apis/scm-providers/github";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
-import { checkEnvVariablesGitHub, cleanAfterTestGitHub, createTaskCreatorOptionsGitHub, getDeveloperHubClient, getGitHubClient, checkIfAcsScanIsPass, verifySyftImagePath, getRHTAPGitopsNamespace, waitForComponentCreation } from "../../../../src/utils/test.utils";
-import { Tekton } from '../../../../src/utils/tekton';
+import { checkEnvVariablesGitHub, cleanAfterTestGitHub, getDeveloperHubClient, getGitHubClient, getRHTAPGitopsNamespace } from "../../../../src/utils/test.utils";
+import { DeveloperHubTestBlocks } from '../../../test-blocks/developer-hub';
+import { ArgoTestBlocks } from '../../../test-blocks/argo';
+import { GithubTestBlocks } from '../../../test-blocks/github';
+import { TektonTestBlocks } from '../../../test-blocks/tekton';
 import { onPushTasks } from '../../../../src/constants/tekton';
 
 
@@ -23,21 +24,24 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
 
         const componentRootNamespace = process.env.APPLICATION_ROOT_NAMESPACE || 'rhtap-app';
         const ciNamespace = `${componentRootNamespace}-ci`;
+        const ciType = `tekton`;
 
         const githubOrganization = process.env.GITHUB_ORGANIZATION || '';
         const repositoryName = `${generateRandomChars(9)}-${gptTemplate}`;
+        const repositoryNameGitops = `${repositoryName}-gitops`;
 
         const imageName = "rhtap-qe-" + `${gptTemplate}`;
         const imageOrg = process.env.IMAGE_REGISTRY_ORG || 'rhtap';
         const imageRegistry = process.env.IMAGE_REGISTRY || 'quay.io';
 
-        let developerHubTask: TaskIdReponse;
-        let backstageClient: DeveloperHubClient;
         let gitHubClient: GitHubProvider;
         let kubeClient: Kubernetes;
-        let tektonClient: Tekton;
-
         let RHTAPGitopsNamespace: string;
+
+        let developerHubTestBlocks: DeveloperHubTestBlocks;
+        let argoTestBlocks: ArgoTestBlocks;
+        let githubTestBlocks: GithubTestBlocks;
+        let tektonTestBlocks: TektonTestBlocks;
 
         /**
          * Initializes Github and Kubernetes client for interaction. After clients initialization will start to create a test namespace.
@@ -47,9 +51,13 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
         beforeAll(async () => {
             RHTAPGitopsNamespace = await getRHTAPGitopsNamespace();
             kubeClient = new Kubernetes();
-            tektonClient = new Tekton();
             gitHubClient = await getGitHubClient(kubeClient);
-            backstageClient = await getDeveloperHubClient(kubeClient);
+            const backstageClient = await getDeveloperHubClient(kubeClient);
+
+            developerHubTestBlocks = new DeveloperHubTestBlocks(backstageClient);
+            argoTestBlocks = new ArgoTestBlocks(kubeClient, backstageClient);
+            githubTestBlocks = new GithubTestBlocks(gitHubClient);
+            tektonTestBlocks = new TektonTestBlocks(kubeClient);
 
             await checkEnvVariablesGitHub(componentRootNamespace, githubOrganization, imageOrg, ciNamespace, kubeClient);
         });
@@ -58,87 +66,59 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
          * Creates a request to Developer Hub and check if the gpt really exists in the catalog
          */
         it(`verifies if ${gptTemplate} gpt exists in the catalog`, async () => {
-            const goldenPathTemplates = await backstageClient.getGoldenPathTemplates();
-
-            expect(goldenPathTemplates.some(gpt => gpt.metadata.name === gptTemplate)).toBe(true);
+            expect(await developerHubTestBlocks.verifyGPTCatalogExistence(gptTemplate)).toBe(true);
         });
 
         /**
          * Creates a task in Developer Hub to generate a new component using specified git and kube options.
-         * 
-         * @param templateRef Refers to the Developer Hub template name.
-         * @param values Set of options to create the component.
-         * @param owner Developer Hub username who initiates the task.
-         * @param name Name of the repository to be created in GitHub.
-         * @param branch Default git branch for the component.
-         * @param repoUrl Complete URL of the git provider where the component will be created.
-         * @param imageRegistry Image registry provider. Default is Quay.io.
-         * @param namespace Kubernetes namespace where ArgoCD will create component manifests.
-         * @param imageName Registry image name for the component to be pushed.
-         * @param imageOrg Registry organization name for the component to be pushed.
          */
         it(`creates ${gptTemplate} component`, async () => {
-            const taskCreatorOptions = await createTaskCreatorOptionsGitHub(gptTemplate, imageName, imageOrg, imageRegistry, githubOrganization, repositoryName, componentRootNamespace, "tekton");
-
-            // Creating a task in Developer Hub to scaffold the component
-            developerHubTask = await backstageClient.createDeveloperHubTask(taskCreatorOptions);
+            expect(await developerHubTestBlocks.createComponent(gptTemplate, imageName, imageOrg, imageRegistry, githubOrganization, repositoryName, componentRootNamespace, ciType)).toBe(true);
         }, 120000);
-
-        /**
-         * Once test send a task to Developer Hub, test start to look for the task until all the steps are processed. Once all the steps are processed
-         * test will grab logs in $ROOT_DIR/artifacts/backstage/xxxxx-component-name.log
-         */
-        it(`wait ${gptTemplate} component to be finished`, async () => {
-            await waitForComponentCreation(backstageClient, repositoryName, developerHubTask);
-        }, 120000);
-
-        /**
-         * Once a DeveloperHub task is processed should create an argocd application in openshift-gitops namespace. 
-         * Need to wait until application is synced until commit something to github and trigger a pipelinerun
-         */
-        it(`wait ${gptTemplate} argocd to be synced in the cluster`, async () => {
-            const argoCDAppISSynced = await kubeClient.waitForArgoCDApplicationToBeHealthy(`${repositoryName}-development`, 500000);
-            expect(argoCDAppISSynced).toBe(true);
-        }, 600000);
 
         /**
          * Start to verify if Red Hat Developer Hub created repository from our template in GitHub. This repository should contain the source code of 
          * my application. Also verifies if the repository contains a '.tekton' folder.
          */
         it(`verifies if component ${gptTemplate} was created in GitHub and contains '.tekton' folder`, async () => {
-            const repositoryExists = await gitHubClient.checkIfRepositoryExists(githubOrganization, repositoryName);
-            expect(repositoryExists).toBe(true);
-
-            const tektonFolderExists = await gitHubClient.checkIfFolderExistsInRepository(githubOrganization, repositoryName, '.tekton');
-            expect(tektonFolderExists).toBe(true);
+            expect(await githubTestBlocks.verifyRepositoryCreation(repositoryName, githubOrganization, '.tekton')).toBe(true);
         }, 120000);
 
         /**
          * Verification to check if Red Hat Developer Hub created the gitops repository with all our manifests for argoCd
          */
         it(`verifies if component ${gptTemplate} have a valid gitops repository and there exists a '.tekton' folder`, async () => {
-            const repositoryExists = await gitHubClient.checkIfRepositoryExists(githubOrganization, `${repositoryName}-gitops`);
-            expect(repositoryExists).toBe(true);
-
-            const tektonFolderExists = await gitHubClient.checkIfFolderExistsInRepository(githubOrganization, repositoryName, '.tekton');
-            expect(tektonFolderExists).toBe(true);
+            expect(await githubTestBlocks.verifyRepositoryCreation(repositoryNameGitops, githubOrganization, '.tekton')).toBe(true);
         }, 120000);
 
         /**
-         * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
+         * Once a DeveloperHub task is processed should create an argocd application in openshift-gitops namespace. 
+         * Need to wait until application is synced until commit something to github and trigger a pipelinerun
+         */        
+        it(`wait ${gptTemplate} argocd to be synced in the cluster`, async () => {
+            expect(await argoTestBlocks.verifyArgoCDAplicationHealth(`${repositoryName}-development`)).toBe(true);
+        }, 600000);
+
+        /**
+         * Creates an empty commit in the repository and expect that a pipelinerun start.
          */
         it(`Creates empty commit to trigger a pipeline run`, async () => {
             const commit = await gitHubClient.createEmptyCommit(githubOrganization, repositoryName);
             expect(commit).not.toBe(undefined);
+        }, 120000);
 
+        /**
+         * Creates a commit in the repository and expect that a pipelinerun start.
+         */
+        it(`Verifies that pipelineRun was started by the commit`, async () => {
+            expect(await tektonTestBlocks.verifyPipelineRunStart(repositoryName, 'push')).toBe(true);
         }, 120000);
 
         /**
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'push', onPushTasks);
-            expect(pipelineRunResult).toBe(true);
+            expect(await tektonTestBlocks.verifyPipelineRunSuccess(repositoryName, ciNamespace, 'push', onPushTasks)).toBe(true);
         }, 900000);
 
         /**
@@ -146,19 +126,15 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
          * if failed to figure out the image path ,return pod yaml for reference
          */
         it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'push');
-            expect(result).toBe(true);
+            expect(await tektonTestBlocks.verifySyftImagePath(repositoryName, ciNamespace, 'push')).toBe(true);
         }, 900000);
 
         /**
          * verify if the ACS Scan is successfully done from the logs of task steps
          */
         it(`Check if ACS Scan is successful for ${gptTemplate}`, async () => {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'push');
-            expect(result).toBe(true);
-            console.log("Verified as ACS Scan is Successful");
+            expect(await tektonTestBlocks.checkIfAcsScanIsPass(repositoryName, ciNamespace, 'push')).toBe(true);
         }, 900000);
-
 
         /**
         * Deletes created applications
@@ -169,5 +145,4 @@ export const gitHubBasicGoldenPathTemplateTests = (gptTemplate: string) => {
             }
         });
     });
-
 };
