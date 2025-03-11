@@ -158,7 +158,7 @@ export async function getCosignPublicKey(kubeClient: Kubernetes) {
     }
 }
 
-export async function waitForComponentCreation(backstageClient: DeveloperHubClient, repositoryName: string, developerHubTask: TaskIdReponse) {
+export async function waitForComponentCreation(backstageClient: DeveloperHubClient, repositoryName: string, developerHubTask: TaskIdReponse): Promise<boolean> {
     const taskCreated = await backstageClient.getTaskProcessed(developerHubTask.id, 120000);
 
     if (taskCreated.status !== 'completed') {
@@ -170,9 +170,13 @@ export async function waitForComponentCreation(backstageClient: DeveloperHubClie
         } catch (error) {
             throw new Error(`Failed to write logs to artifact directory: ${error}`);
         }
-    } else {
-        console.log("Task created successfully in backstage");
+
+        return false;
     }
+
+    console.log("Task created successfully in backstage");
+    return true;
+    
 }
 
 export async function checkComponentSyncedInArgoAndRouteIsWorking(kubeClient: Kubernetes, backstageClient: DeveloperHubClient, namespaceName: string, environmentName: string, repositoryName: string, stringOnRoute: string) {
@@ -296,7 +300,7 @@ export async function createTaskCreatorOptionsGitlab(softwareTemplateName: strin
     * @param {string} componentRootNamespace Kubernetes namespace where ArgoCD will create component manifests.
     * @param {string} ciType CI Type: "jenkins" "tekton"
 */
-export async function createTaskCreatorOptionsGitHub(softwareTemplateName: string, imageName: string, ImageOrg: string, imageRegistry: string, gitLabOrganization: string, repositoryName: string, componentRootNamespace: string, ciType: string): Promise<ScaffolderScaffoldOptions> {
+export async function createTaskCreatorOptionsGitHub(softwareTemplateName: string, imageName: string, ImageOrg: string, imageRegistry: string, githubOrganization: string, repositoryName: string, componentRootNamespace: string, ciType: string): Promise<ScaffolderScaffoldOptions> {
     const taskCreatorOptions: ScaffolderScaffoldOptions = {
         templateRef: `template:default/${softwareTemplateName}`,
         values: {
@@ -310,7 +314,7 @@ export async function createTaskCreatorOptionsGitHub(softwareTemplateName: strin
             namespace: componentRootNamespace,
             owner: "user:guest",
             repoName: repositoryName,
-            ghOwner: gitLabOrganization,
+            ghOwner: githubOrganization,
             ciType: ciType
         }
     };
@@ -481,8 +485,10 @@ export async function checkSBOMInTrustification(kubeClient: Kubernetes, searchSt
         console.log('SBOM Data:', sbomData);
     } catch (error) {
         console.error('Error fetching SBOM data:', error);
-        throw error;
+        return false;
     }
+
+    return true;
 }
 
 export async function verifyPipelineRunByRepository(kubeClient: Kubernetes, repositoryName: string, developmentNamespace: string, eventType: string) {

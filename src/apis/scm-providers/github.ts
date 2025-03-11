@@ -231,7 +231,7 @@ export class GitHubProvider extends Utils {
         }
     }
 
-    public async createPullRequestFromMainBranch(owner: string, repo: string, filePath: string, content: string, fileSHA = ""): Promise<number | undefined> {
+    public async createPullRequestFromMainBranch(owner: string, repo: string, filePath: string, content: string, fileSHA = ""): Promise<number> {
         const baseBranch = "main"; // Specify the base branch
         const newBranch = generateRandomChars(5); // Specify the new branch name
 
@@ -269,11 +269,30 @@ export class GitHubProvider extends Utils {
                 body: "RHTAP E2E: Automatic Pull Request"
             });
 
+            if (pullRequest.number === undefined) {
+                throw new Error("Failed to create a pull request");
+            }
+
             return pullRequest.number;
 
         } catch (error) {
-            console.error("Error:", error);
+            throw new Error(`Error: ${error}`);
         }
+    }
+
+    public async createPromotionPullRequest(githubOrganization: string, repositoryName: string, sourceEnvironment: string, targetEnvironment: string): Promise<[string, number]> {
+        const getImage = await this.extractImageFromContent(githubOrganization, `${repositoryName}-gitops`, repositoryName, sourceEnvironment);
+
+        if (getImage === undefined) {
+            throw new Error("Failed to create a pr");
+        }
+
+        const gitopsPromotionPR = await this.promoteGitopsImageEnvironment(githubOrganization, `${repositoryName}-gitops`, repositoryName, targetEnvironment, getImage);
+        if (gitopsPromotionPR === undefined) {
+            throw new Error("Failed to create a pr");
+        }
+
+        return [getImage, gitopsPromotionPR];
     }
 
     /**
