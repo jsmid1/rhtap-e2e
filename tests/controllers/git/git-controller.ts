@@ -2,6 +2,8 @@ import { ScaffolderScaffoldOptions } from '@backstage/plugin-scaffolder-react/in
 import { Kubernetes } from '../../../src/apis/kubernetes/kube';
 
 export interface GitController {
+    getPullRequestType(): string;
+    getPushEventType(): string;
 
     /**
      * Creates a Git webhook for push events

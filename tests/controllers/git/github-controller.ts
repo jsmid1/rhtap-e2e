@@ -25,6 +25,14 @@ export class GithubController extends Utils implements GitController {
         });
     }
 
+    public getPullRequestType(): string {
+        return 'pull_request';
+    }
+
+    public getPushEventType(): string {
+        return 'push';
+    }
+
     public async createTaskCreatorOptions(softwareTemplateName: string, imageName: string, imageOrg: string, imageRegistry: string, gitOrganization: string, repositoryName: string, componentRootNamespace: string, ciType: string): Promise<ScaffolderScaffoldOptions> {
         return createTaskCreatorOptionsGitHub(softwareTemplateName, imageName, imageOrg, imageRegistry, gitOrganization, repositoryName, componentRootNamespace, ciType);
     }
