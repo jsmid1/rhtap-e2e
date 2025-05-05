@@ -36,6 +36,7 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
         let gitController: GitController;
         let kubeClient: Kubernetes;
         let tektonClient: Tekton;
+        let pipelineAsCodeRoute: string;
 
         let RHTAPGitopsNamespace: string;
 
@@ -50,6 +51,8 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
             gitController = await GitFactory.create(gitProvider);
             tektonClient = new Tekton();
             backstageClient = await getDeveloperHubClient(kubeClient);
+            
+            pipelineAsCodeRoute = `https://${await kubeClient.getOpenshiftRoute('pipelines-as-code-controller', 'openshift-pipelines')}`;
 
             await gitController.checkEnvVariables(componentRootNamespace, gitOrganization, imageOrg, ciNamespace, kubeClient);
         });
@@ -128,6 +131,7 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
          * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
          */
         it(`Creates empty commit to trigger a pipeline run`, async () => {
+            await gitController.createWebhook(gitOrganization, repositoryName, pipelineAsCodeRoute);
             const commit = await gitController.createCommit(gitOrganization, repositoryName);
             expect(commit).not.toBe(undefined);
 
@@ -137,7 +141,7 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} pipelinerun to be triggered and finished`, async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'push', onPushTasks);
+            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, gitController.getPushEventType(), onPushTasks);
             expect(pipelineRunResult).toBe(true);
         }, 900000);
 
@@ -146,7 +150,7 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
          * if failed to figure out the image path ,return pod yaml for reference
          */
         it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, gitController.getPushEventType());
             expect(result).toBe(true);
         }, 900000);
 
@@ -154,7 +158,7 @@ export const basicGoldenPathTests = (gptTemplate: string, gitProvider: string, g
          * verify if the ACS Scan is successfully done from the logs of task steps
          */
         it(`Check if ACS Scan is successful for ${gptTemplate}`, async () => {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, gitController.getPushEventType());
             expect(result).toBe(true);
             console.log("Verified as ACS Scan is Successful");
         }, 900000);

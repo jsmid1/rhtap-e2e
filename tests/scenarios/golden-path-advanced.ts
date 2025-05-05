@@ -57,6 +57,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
         let pullRequestNumber: number;
         let gitopsPromotionPRNumber: number;
         let extractedBuildImage: string;
+        let pipelineAsCodeRoute: string;
 
         let RHTAPGitopsNamespace: string;
 
@@ -71,6 +72,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
             tektonClient = new Tekton();
             gitController = await GitFactory.create(gitProvider);
             backstageClient = await getDeveloperHubClient(kubeClient);
+            pipelineAsCodeRoute = `https://${await kubeClient.getOpenshiftRoute('pipelines-as-code-controller', 'openshift-pipelines')}`;
 
             await gitController.checkEnvVariables(componentRootNamespace, gitOrganization, imageOrg, ciNamespace, kubeClient);
         });
@@ -148,6 +150,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * @throws {Error} Throws an error if the creation of the pull request fails.
          */
         it(`Creates a pull request to trigger a PipelineRun`, async () => {
+            await gitController.createWebhook(gitOrganization, repositoryName, pipelineAsCodeRoute);
             const prNumber = await gitController.createPullRequestFromMainBranch(gitOrganization, repositoryName, 'test_file.txt', 'Test content');
 
             // Set the pull request number if creation was successful
@@ -162,7 +165,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} pull request pipelinerun to be triggered and finished`, async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'pull_request', onPullTasks);
+            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, gitController.getPullRequestType(), onPullTasks);
             expect(pipelineRunResult).toBe(true);
         }, 900000);
 
@@ -177,7 +180,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * Waits until a pipeline run is created in the cluster and start to wait until succeed/fail.
          */
         it(`Wait component ${gptTemplate} push pipelinerun to be triggered and finished`, async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, 'push', onPushTasks);
+            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(repositoryName, ciNamespace, gitController.getPushEventType(), onPushTasks);
             expect(pipelineRunResult).toBe(true);
         }, 900000);
 
@@ -186,7 +189,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
         * if failed to figure out the image path ,return pod yaml for reference
         */
         it(`Check ${gptTemplate} pipelinerun yaml has the rh-syft image path`, async () => {
-            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await verifySyftImagePath(kubeClient, repositoryName, ciNamespace, gitController.getPushEventType());
             expect(result).toBe(true);
         }, 900000);
 
@@ -194,7 +197,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * verify if the ACS Scan is successfully done from the logs of task steps
          */
         it(`Check if ACS Scan is successful for ${gptTemplate}`, async () => {
-            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, 'push');
+            const result = await checkIfAcsScanIsPass(kubeClient, repositoryName, ciNamespace, gitController.getPushEventType());
             expect(result).toBe(true);
             console.log("Verified as ACS Scan is Successful");
         }, 900000);
@@ -220,6 +223,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * Trigger a promotion Pull Request in Gitops repository to promote development image to stage environment
          */
         it('trigger pull request promotion to promote from development to stage environment', async () => {
+            await gitController.createWebhook(gitOrganization, `${repositoryName}-gitops`, pipelineAsCodeRoute);
             const getImage = await gitController.extractImageFromContent(gitOrganization, `${repositoryName}-gitops`, repositoryName, developmentEnvironmentName);
 
             if (getImage !== undefined) {
@@ -234,13 +238,13 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
             } else {
                 throw new Error("Failed to create a pr");
             }
-        });
+        }, 60000);
 
         /**
          * Verifies successful completion of EC PipelineRun to ensure environment promotion from development to staging.
          */
         it('verifies successful completion of EC PipelineRun to ensure environment promotion from development to staging', async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, 'pull_request', onPullGitopsTasks);
+            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, gitController.getPullRequestType(), onPullGitopsTasks);
             expect(pipelineRunResult).toBe(true);
         }, 900000);
 
@@ -292,7 +296,7 @@ export const advancedGoldenPathTests = (gptTemplate: string, gitProvider: string
          * Verifies successful completion of EC PipelineRun to ensure environment promotion from staging to production.
          */
         it('verifies successful completion of PipelineRun to ensure environment promotion from stage to prod', async () => {
-            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, 'pull_request', onPullGitopsTasks);
+            const pipelineRunResult = await tektonClient.verifyPipelineRunByRepository(`${repositoryName}-gitops`, ciNamespace, gitController.getPullRequestType(), onPullGitopsTasks);
             expect(pipelineRunResult).toBe(true);
         }, 900000);
 
