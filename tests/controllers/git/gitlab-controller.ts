@@ -57,18 +57,11 @@ export class GitlabController extends Utils implements GitController {
         return;
     }
 
-    public async cleanAfterTest(_gitOrganization: string, _repositoryName: string): Promise<void> {
-        return;
+    public async cleanAfterTest(gitOrganization: string, repositoryName: string): Promise<void> {
+        if (await this.checkIfRepositoryExists(gitOrganization, repositoryName)){
+            await this.deleteProject(gitOrganization, repositoryName);
+        }
     }
-
-    // public async cleanAfterTestGitLab(gitLabOrganization: string, gitlabRepositoryID: number, repositoryName: string) {
-    //     //Check, if gitops repo exists and delete
-    //     const gitlabRepositoryIDGitOps = await this.checkIfRepositoryExists(gitLabOrganization, `${repositoryName}-gitops`);
-    //     await this.deleteProject(gitlabRepositoryIDGitOps);
-    
-    //     //Check, if repo exists and delete
-    //     await this.deleteProject(gitlabRepositoryID);
-    // }
 
     // Get GitLab token
     public async getGitlabToken(): Promise<string> {
@@ -134,7 +127,9 @@ export class GitlabController extends Utils implements GitController {
     /**
      * checkIfRepositoryHaveFile
      */
-    public async checkIfRepositoryHaveFile(repositoryID: number, filePath: string): Promise<boolean> {
+    public async checkIfRepositoryHaveFile(gitOrg: string, gitRepository: string, filePath: string): Promise<boolean> {
+        const repositoryID = await this.getProjectId(gitOrg, gitRepository);
+
         try {
             await this.gitlab.RepositoryFiles.show(repositoryID, filePath, 'main');
             return true;
@@ -177,38 +172,33 @@ export class GitlabController extends Utils implements GitController {
     }
 
     public async createAgentCommit(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
         const stringToFind = "agent any";
         const replacementString = "agent {\n      kubernetes {\n        label 'jenkins-agent'\n        cloud 'openshift'\n        serviceAccount 'jenkins'\n        podRetention onFailure()\n        idleMinutes '5'\n        containerTemplate {\n         name 'jnlp'\n         image '" + this.jenkinsAgentImage + "'\n         ttyEnabled true\n         args '${computer.jnlpmac} ${computer.name}'\n        }\n       }    \n}";
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'Jenkinsfile', 'Update Jenkins agent', stringToFind, replacementString);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'Jenkinsfile', 'Update Jenkins agent', stringToFind, replacementString);
     }
 
     public async createUsernameCommit(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
         const stringToFind = "/* GITOPS_AUTH_USERNAME = credentials('GITOPS_AUTH_USERNAME') */";
         const replacementString = `GITOPS_AUTH_USERNAME = credentials('GITOPS_AUTH_USERNAME')`;
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'Jenkinsfile', 'Update creds for Gitlab', stringToFind, replacementString);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'Jenkinsfile', 'Update creds for Gitlab', stringToFind, replacementString);
     }
 
     public async updateImageRegistryUser(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
         const stringToFind = "/* IMAGE_REGISTRY_USER = credentials('IMAGE_REGISTRY_USER') */";
         const replacementString = `IMAGE_REGISTRY_USER = credentials('IMAGE_REGISTRY_USER')`;
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'Jenkinsfile', 'Update creds for IMAGE_REGISTRY_USER', stringToFind, replacementString);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'Jenkinsfile', 'Update creds for IMAGE_REGISTRY_USER', stringToFind, replacementString);
     }
 
     public async createRegistryPasswordCommit(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
         const stringToFind = "/* IMAGE_REGISTRY_PASSWORD = credentials('IMAGE_REGISTRY_PASSWORD') */";
         const replacementString = `IMAGE_REGISTRY_PASSWORD = credentials('IMAGE_REGISTRY_PASSWORD')`;
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'Jenkinsfile', 'Update creds for IMAGE_REGISTRY_PASSWORD', stringToFind, replacementString);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'Jenkinsfile', 'Update creds for IMAGE_REGISTRY_PASSWORD', stringToFind, replacementString);
     }
 
     public async disableQuayCommit(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
         const stringToFind = "QUAY_IO_CREDS = credentials('QUAY_IO_CREDS')";
         const replacementString = `/* QUAY_IO_CREDS = credentials('QUAY_IO_CREDS') */`;
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'Jenkinsfile', 'Disable Quay creds for Gitlab', stringToFind, replacementString);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'Jenkinsfile', 'Disable Quay creds for Gitlab', stringToFind, replacementString);
     }
 
     public async extractImageFromContent(gitOrganization: string, repositoryName: string, componentName: string, environment: string) {
@@ -363,7 +353,9 @@ export class GitlabController extends Utils implements GitController {
      * @param {number} projectId - The ID number of GitLab repo.
      * @param {number} mergeRequestId - The ID number of GitLab merge request.
      */
-    public async waitForMergeableMergeRequest(projectId: number, mergeRequestId: number, timeoutMs: number) {
+    public async waitForMergeableMergeRequest(gitOrganization: string, repositoryName: string, mergeRequestId: number, timeoutMs: number) {
+        const projectId = await this.getProjectId(gitOrganization, repositoryName);
+
         console.log(`Waiting for new pipeline to be created...`);
         const retryInterval = 10 * 1000;
         let totalTimeMs = 0;
@@ -389,7 +381,9 @@ export class GitlabController extends Utils implements GitController {
      * 
      * @param {number} projectId - The ID number of GitLab repo.
      */
-    public async deleteProject(projectId: number) {
+    public async deleteProject(gitOrganization: string, repositoryName: string) {
+        const projectId = await this.getProjectId(gitOrganization, repositoryName);
+
         try {
             await this.gitlab.Projects.remove(projectId);
 
@@ -514,19 +508,15 @@ export class GitlabController extends Utils implements GitController {
     }
 
     public async enableACSJenkins(gitOrganization: string, repositoryName: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'rhtap/env.sh', 'Update ACS scan for Gitlab', `DISABLE_ACS=true`, `DISABLE_ACS=false`);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'rhtap/env.sh', 'Update ACS scan for Gitlab', `DISABLE_ACS=true`, `DISABLE_ACS=false`);
     }
 
     public async updateRekorHost(gitOrganization: string, repositoryName: string, rekorHost: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
-
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'rhtap/env.sh', 'Update Rekor host', `http://rekor-server.rhtap-tas.svc`, rekorHost);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'rhtap/env.sh', 'Update Rekor host', `http://rekor-server.rhtap-tas.svc`, rekorHost);
     }
 
     public async updateTUFMirror(gitOrganization: string, repositoryName: string, tufMirror: string): Promise<string> {
-        const repositoryID = await this.getProjectId(gitOrganization, repositoryName);
-        return await this.commitReplacementStringInFile(repositoryID, 'main', 'rhtap/env.sh', 'Update TUF Mirror', `http://tuf.rhtap-tas.svc`, tufMirror);
+        return await this.commitReplacementStringInFile(gitOrganization, repositoryName, 'rhtap/env.sh', 'Update TUF Mirror', `http://tuf.rhtap-tas.svc`, tufMirror);
     }
 
     public async updateEnvFileForGitLabCI(gitOrganization: string, repositoryName: string, rekorHost: string, tufMirror: string): Promise<boolean> {

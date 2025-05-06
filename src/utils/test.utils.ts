@@ -1,4 +1,4 @@
-import { GitLabProvider } from "../../src/apis/scm-providers/gitlab";
+import { GitLabProvider } from "./gitlab";
 import { GithubController } from "../../tests/controllers/git/github-controller";
 import { BitbucketProvider } from "../../src/apis/scm-providers/bitbucket";
 import { Kubernetes } from "../../src/apis/kubernetes/kube";
@@ -8,6 +8,7 @@ import { ScaffolderScaffoldOptions } from "@backstage/plugin-scaffolder-react";
 import { syncArgoApplication } from "./argocd";
 import { TaskIdReponse } from "../../src/apis/backstage/types";
 import { TrustificationClient } from "../../src/apis/trustification/trustification";
+import { GitlabController } from '../../tests/controllers/git/gitlab-controller';
 
 
 export async function cleanAfterTestGitHub(gitHubClient: GithubController, kubeClient: Kubernetes, gitopsNamespace: string, githubOrganization: string, repositoryName: string) {
@@ -118,9 +119,9 @@ export async function getJenkinsCI(kubeClient: Kubernetes) {
 
 export async function getGitLabProvider(kubeClient: Kubernetes) {
     if (process.env.GITLAB_TOKEN) {
-        return new GitLabProvider(process.env.GITLAB_TOKEN);
+        return new GitlabController(process.env.GITLAB_TOKEN);
     } else {
-        return new GitLabProvider(await kubeClient.getDeveloperHubSecret(await getRHTAPRHDHNamespace(), "developer-hub-rhtap-env", "GITLAB__TOKEN"));
+        return new GitlabController(await kubeClient.getDeveloperHubSecret(await getRHTAPRHDHNamespace(), "developer-hub-rhtap-env", "GITLAB__TOKEN"));
     }
 }
 

@@ -1,11 +1,11 @@
 import { beforeAll, expect, it, describe } from "@jest/globals";
 import { DeveloperHubClient } from "../../../../src/apis/backstage/developer-hub";
 import { TaskIdReponse } from "../../../../src/apis/backstage/types";
-import { GitLabProvider } from "../../../../src/apis/scm-providers/gitlab";
 import { Kubernetes } from "../../../../src/apis/kubernetes/kube";
 import { generateRandomChars } from "../../../../src/utils/generator";
-import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, cleanAfterTestGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRootNamespace, setSecretsForJenkinsInFolder, waitForComponentCreation} from "../../../../src/utils/test.utils";
+import { checkComponentSyncedInArgoAndRouteIsWorking, checkEnvVariablesGitLab, createTaskCreatorOptionsGitlab, getDeveloperHubClient, getGitLabProvider, getJenkinsCI, getRHTAPGitopsNamespace, getRHTAPRootNamespace, setSecretsForJenkinsInFolder, waitForComponentCreation} from "../../../../src/utils/test.utils";
 import { JenkinsCI } from "../../../../src/apis/ci/jenkins";
+import { GitlabController } from '../../../controllers/git/gitlab-controller';
 
 /**
  * 1. Components get created in Red Hat Developer Hub
@@ -25,11 +25,10 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         jest.retryTimes(3, {logErrorsBeforeRetry: true}); 
         let backstageClient: DeveloperHubClient;
         let developerHubTask: TaskIdReponse;
-        let gitLabProvider: GitLabProvider;
+        let gitLabProvider: GitlabController;
         let kubeClient: Kubernetes;
         let jenkinsClient: JenkinsCI;
 
-        let gitlabRepositoryID: number;
         let RHTAPRootNamespace: string;
         let RHTAPGitopsNamespace: string;
 
@@ -79,9 +78,8 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         * Checks if Red Hat Developer Hub created the gitops repository with all our manifests for argoCd
         */
         it(`verifies if component ${softwareTemplateName} was created in GitLab and contains Jenkinsfile`, async () => {
-            gitlabRepositoryID = await gitLabProvider.checkIfRepositoryExists(gitLabOrganization, repositoryName);
-            expect(gitlabRepositoryID).toBeDefined();
-            expect(await gitLabProvider.checkIfRepositoryHaveFile(gitlabRepositoryID, 'Jenkinsfile')).toBe(true);
+            expect(await gitLabProvider.checkIfRepositoryExists(gitLabOrganization, repositoryName)).toBe(true);
+            expect(await gitLabProvider.checkIfRepositoryHaveFile(gitLabOrganization, repositoryName, 'Jenkinsfile')).toBe(true);
         });
 
         /**
@@ -89,8 +87,8 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         * The repository should contain the source code of the application and a 'Jenkinsfile.
         */
         it(`verifies if component ${softwareTemplateName} have a valid gitops repository and there exists a Jenkinsfile`, async () => {
-            const repositoryID = await gitLabProvider.checkIfRepositoryExists(gitLabOrganization, `${repositoryName}-gitops`);
-            expect(await gitLabProvider.checkIfRepositoryHaveFile(repositoryID, 'Jenkinsfile')).toBe(true);
+            expect(await gitLabProvider.checkIfRepositoryExists(gitLabOrganization, `${repositoryName}-gitops`)).toBe(true);
+            expect(await gitLabProvider.checkIfRepositoryHaveFile(gitLabOrganization, `${repositoryName}-gitops`, 'Jenkinsfile')).toBe(true);
         });
 
         /**
@@ -104,14 +102,14 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         * Creates commits to update Jenkins agent and enable ACS scan
         */
         it(`Commit updated agent ${softwareTemplateName} and enable ACS scan`, async () => {
-            await gitLabProvider.updateJenkinsfileAgent(gitlabRepositoryID, 'main');
-            await gitLabProvider.createUsernameCommit(gitlabRepositoryID, 'main');
-            await gitLabProvider.createRegistryUserCommit(gitlabRepositoryID, 'main');
-            await gitLabProvider.createRegistryPasswordCommit(gitlabRepositoryID, 'main');
-            await gitLabProvider.disableQuayCommit(gitlabRepositoryID, 'main');
-            await gitLabProvider.enableACSJenkins(gitlabRepositoryID, 'main');
-            await gitLabProvider.updateRekorHost(gitlabRepositoryID, 'main', await kubeClient.getRekorServerUrl(RHTAPRootNamespace));
-            await gitLabProvider.updateTufMirror(gitlabRepositoryID, 'main', await kubeClient.getTUFUrl(RHTAPRootNamespace));
+            await gitLabProvider.createAgentCommit(gitLabOrganization, repositoryName);
+            await gitLabProvider.createUsernameCommit(gitLabOrganization, repositoryName);
+            await gitLabProvider.updateImageRegistryUser(gitLabOrganization, repositoryName);
+            await gitLabProvider.createRegistryPasswordCommit(gitLabOrganization, repositoryName);
+            await gitLabProvider.disableQuayCommit(gitLabOrganization, repositoryName);
+            await gitLabProvider.enableACSJenkins(gitLabOrganization, repositoryName);
+            await gitLabProvider.updateRekorHost(gitLabOrganization, repositoryName, await kubeClient.getRekorServerUrl(RHTAPRootNamespace));
+            await gitLabProvider.updateTUFMirror(gitLabOrganization, repositoryName, await kubeClient.getTUFUrl(RHTAPRootNamespace));
         }, 120000);
 
         it(`creates ${softwareTemplateName} jenkins job and folder and wait for creation`, async () => {
@@ -140,7 +138,7 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         * Creates an empty commit in the repository and expect that a pipelinerun start. Bug which affect to completelly finish this step: https://issues.redhat.com/browse/RHTAPBUGS-1136
         */
         it(`Creates empty commit to trigger a pipeline run`, async () => {
-            await gitLabProvider.createCommit(gitlabRepositoryID, 'main');
+            await gitLabProvider.createCommit(gitLabOrganization, repositoryName);
         }, 120000);
 
         /**
@@ -167,7 +165,10 @@ export const gitLabJenkinsBasicTests = (softwareTemplateName: string, stringOnRo
         */
         afterAll(async () => {
             if (process.env.CLEAN_AFTER_TESTS === 'true') {
-                await cleanAfterTestGitLab(gitLabProvider, kubeClient, RHTAPGitopsNamespace, gitLabOrganization, gitlabRepositoryID, repositoryName);
+                if (process.env.CLEAN_AFTER_TESTS === 'true') {
+                    gitLabProvider.cleanAfterTest(gitLabOrganization, repositoryName);
+                    await kubeClient.deleteApplicationFromNamespace(RHTAPGitopsNamespace, `${repositoryName}-app-of-apps`);
+                }
             }
         });
     });
